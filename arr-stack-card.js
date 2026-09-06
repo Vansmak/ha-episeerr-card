@@ -2414,6 +2414,16 @@ var STYLES = `
       .divider    { height: 1px; background: rgba(255,255,255,0.18); margin: 9px 0; }
       .spacer     { height: 16px; }
       .spacer-sm  { height: 8px; }
+      /* Every category stands as tall as the tallest one on the page, so the
+         headings line up at the same height whichever page is shown and the
+         card does not resize as you page through it. The measurement lives in
+         --sec-min-h on the column; see _syncSecHeights. */
+      .sec-card:not(.sec-search) { min-height: var(--sec-min-h, 0px); }
+      /* And the block of categories keeps a full page's height, so the last
+         page \u2014 which usually holds fewer of them \u2014 ends where the others do.
+         Both live on the column, which no render replaces; written on the
+         sections themselves they were lost with the next repaint. */
+      .rp-sections { min-height: var(--sec-wrap-h, auto); }
 
       .sec { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
 
@@ -3746,22 +3756,32 @@ var STYLES = `
       }
       .mus-search .sn-seasons-rows { flex: 1; min-height: 0; overflow-y: auto; }
       .mus-albums { flex: 1; min-height: 0; overflow: hidden; }
+      /* Dragged or measured to a height of its own: as a flex item with flex:1
+         the height was ignored, which is why the grabber did nothing on a phone
+         and the covers spilled past the modal. */
+      .mus-albums.is-sized { flex: 0 0 auto; overflow: hidden; }
       /* One album's tracks fill what the header leaves, and scroll on their own. */
       .alb-tracks { flex: 1; min-height: 0; overflow-y: auto; padding-bottom: 4px; }
       .alb-tracks .sn-episodes { margin: 0; }
-      @media (min-width: 601px) {
-        .popup-body > .mus-albums {
-          position: absolute; left: 0; right: 0; bottom: 0; top: auto; z-index: 4;
-          flex: 0 0 auto; display: flex; flex-direction: column; min-height: 0;
-          padding: 0 18px 18px; height: 46%;
-          background: var(--is-glass-bg); backdrop-filter: var(--is-glass-blur);
-          -webkit-backdrop-filter: var(--is-glass-blur);
-          border-top: 1px solid var(--is-divider);
-        }
-        .mus-alb-grab { margin: 2px 0 6px; flex: 0 0 auto; }
-        .popup-body > .mus-albums .mus-alb-wrap { flex: 1; min-height: 0; }
+      /* The discography is a sheet at the bottom of the modal at every width.
+         In the flow \u2014 which is what a phone had \u2014 it grew downwards instead,
+         so dragging the grabber pushed the covers off the bottom edge while the
+         grabber itself stayed where it was. */
+      .popup-body > .mus-albums {
+        position: absolute; left: 0; right: 0; bottom: 0; top: auto; z-index: 4;
+        flex: 0 0 auto; display: flex; flex-direction: column; min-height: 0;
+        padding: 0 18px 18px; height: 46%;
+        background: var(--is-glass-bg); backdrop-filter: var(--is-glass-blur);
+        -webkit-backdrop-filter: var(--is-glass-blur);
+        border-top: 1px solid var(--is-divider);
       }
-      @media (max-width: 600px) { .mus-alb-grab { display: none; } }
+      /* Above the covers and never squeezed out of the sheet: with a row over
+         it there was nothing left to grab. */
+      .mus-alb-grab { margin: 2px 0 6px; flex: 0 0 auto; position: relative; z-index: 2; }
+      .popup-body > .mus-albums .mus-alb-wrap { overflow: hidden; }
+      .popup-body > .mus-albums .mus-alb-wrap { flex: 1; min-height: 0; }
+      /* Dragging the sheet must not scroll the modal underneath. */
+      .pp-grab, .mus-alb-grab { touch-action: none; }
       /* The chevron slots reach into the body's own padding, so the first cover
          sits at the same x as the portrait above it. */
       .mus-alb-wrap {
@@ -3773,7 +3793,7 @@ var STYLES = `
          by dropping to two per row on a phone anyway. */
       @media (max-width: 600px) {
         .mus-pg { flex: 0 0 26px; width: 26px; font-size: 26px; }
-        .mus-albums { margin: 0 -18px; overflow: visible; }
+        .popup-body > .mus-albums { padding: 0 12px 12px; }
         .mus-alb-grid { grid-template-columns: repeat(2, 1fr); gap: 8px; }
       }
       .mus-alb-grid {
@@ -4886,6 +4906,11 @@ var STYLES = `
           text-align: left;
           margin-right: auto;
           font-size: 12px;
+          /* In the flow here, so a long label would push the close button off
+             the edge \u2014 it gives way instead. */
+          min-width: 0;
+          overflow: hidden;
+          text-overflow: ellipsis;
         }
         .cal-modal-grid {
           grid-template-columns: 1fr;
@@ -5066,6 +5091,10 @@ var STYLES = `
         transition: background 0.15s;
       }
       .pp-grab.is-dragging { cursor: grabbing; }
+      /* Held on to: the bar takes the accent. This lived in the phone's own
+         block, so on a tablet or a desktop the grabber gave no sign it had been
+         picked up. */
+      .pp-grab.is-dragging > span { background: rgba(var(--accent-rgb), 0.9); }
       .popup-body .is-results-wrap,
       .popup-body .sn-episodes {
         flex: 1; min-height: 0; overflow-y: auto;
@@ -11161,10 +11190,13 @@ var _ArrMethods = class {
     }, 60);
   }
   // Everything Lidarr artwork is drawn on: the row in the right column, the
-  // artist modal, and the library — which hangs off the shadow root and so is
-  // reached by neither of the others.
+  // artist modal, the calendar and the library — the last two hang off the shadow
+  // root and are reached by neither of the others, so a cover that arrived after
+  // the first paint never appeared there. That is why the calendar showed
+  // initials where an album has a perfectly good cover.
   _lidarrRepaint() {
     if (this._musicModal) this._renderMusicModalEl();
+    if (this._calendarModalOpen) this._renderCalendarModalEl();
     const lib = this.shadowRoot?.querySelector("[data-lib-modal]");
     if (lib && this._libModal) this._libRerenderBody(lib);
     this._reRenderSection?.("recentlyAdded");
@@ -12785,12 +12817,12 @@ var _RenderRight = class {
     switch (prov) {
       case "tmdb": {
         raw = ratings.tmdb?.value ?? m.voteAverage;
-        if (!raw && !isMovie && tmdbId) {
-          const tmdbVote = this._posterTmdbVoteCache.get(tmdbId);
+        if (!raw && tmdbId) {
+          const tmdbVote = this._posterTmdbVoteCache.get(this._tmdbVoteKey(tmdbId, isMovie));
           if (tmdbVote) {
             raw = tmdbVote;
           } else if (tmdbVote === void 0) {
-            this._fetchPosterTmdbVote(tmdbId);
+            this._fetchPosterTmdbVote(tmdbId, isMovie);
             return "";
           }
         }
@@ -12836,8 +12868,7 @@ var _RenderRight = class {
         break;
       }
       default: {
-        const hasImdb = !!ratings.imdb?.value;
-        if (hasImdb) {
+        if (ratings.imdb?.value) {
           raw = ratings.imdb.value;
           display = (Math.round(raw * 10) / 10).toFixed(1);
           icon = `<svg width="24" height="11" viewBox="0 0 64 28" style="flex-shrink:0"><rect width="64" height="28" rx="4" fill="#F5C518"/><text x="32" y="21" text-anchor="middle" font-family="Arial,sans-serif" font-size="18" font-weight="900" fill="#000">IMDb</text></svg>`;
@@ -12845,30 +12876,27 @@ var _RenderRight = class {
           bgClr = "rgba(245,197,24,0.22)";
           break;
         }
-        if (!isMovie) {
-          const tmdbVote = tmdbId ? this._posterTmdbVoteCache.get(tmdbId) : void 0;
-          if (tmdbVote) {
-            display = (Math.round(tmdbVote * 10) / 10).toFixed(1);
-            icon = `<svg width="30" height="11" viewBox="0 0 64 28" style="flex-shrink:0"><rect width="64" height="28" rx="4" fill="#0d253f"/><text x="32" y="21" text-anchor="middle" font-family="Arial,sans-serif" font-size="15" font-weight="800" fill="#01b4e4">TMDB</text></svg>`;
-            bdrClr = "rgba(1,180,228,0.45)";
-            bgClr = "rgba(1,180,228,0.22)";
-            break;
-          }
-          if (tmdbVote === void 0 && tmdbId) this._fetchPosterTmdbVote(tmdbId);
-          if (ratings.value) {
-            display = (Math.round(ratings.value * 10) / 10).toFixed(1);
-            icon = `<svg width="26" height="11" viewBox="0 0 64 28" style="flex-shrink:0"><rect width="64" height="28" rx="4" fill="#6cd591"/><text x="32" y="21" text-anchor="middle" font-family="Arial,sans-serif" font-size="14" font-weight="900" fill="#003224">TVDB</text></svg>`;
-            bdrClr = "rgba(108,213,145,0.45)";
-            bgClr = "rgba(108,213,145,0.22)";
-            break;
-          }
+        let tmdbVal = ratings.tmdb?.value ?? m.voteAverage ?? null;
+        if (!tmdbVal && tmdbId) {
+          const cachedVote = this._posterTmdbVoteCache.get(this._tmdbVoteKey(tmdbId, isMovie));
+          if (cachedVote) tmdbVal = cachedVote;
+          else if (cachedVote === void 0) this._fetchPosterTmdbVote(tmdbId, isMovie);
         }
-        raw = m.voteAverage;
-        if (!raw) return "";
-        display = (Math.round(raw * 10) / 10).toFixed(1);
-        icon = `<svg width="24" height="11" viewBox="0 0 64 28" style="flex-shrink:0"><rect width="64" height="28" rx="4" fill="#F5C518"/><text x="32" y="21" text-anchor="middle" font-family="Arial,sans-serif" font-size="18" font-weight="900" fill="#000">IMDb</text></svg>`;
-        bdrClr = "rgba(245,197,24,0.45)";
-        bgClr = "rgba(245,197,24,0.22)";
+        if (tmdbVal) {
+          display = (Math.round(tmdbVal * 10) / 10).toFixed(1);
+          icon = `<svg width="30" height="11" viewBox="0 0 64 28" style="flex-shrink:0"><rect width="64" height="28" rx="4" fill="#0d253f"/><text x="32" y="21" text-anchor="middle" font-family="Arial,sans-serif" font-size="15" font-weight="800" fill="#01b4e4">TMDB</text></svg>`;
+          bdrClr = "rgba(1,180,228,0.45)";
+          bgClr = "rgba(1,180,228,0.22)";
+          break;
+        }
+        if (!isMovie && ratings.value) {
+          display = (Math.round(ratings.value * 10) / 10).toFixed(1);
+          icon = `<svg width="26" height="11" viewBox="0 0 64 28" style="flex-shrink:0"><rect width="64" height="28" rx="4" fill="#6cd591"/><text x="32" y="21" text-anchor="middle" font-family="Arial,sans-serif" font-size="14" font-weight="900" fill="#003224">TVDB</text></svg>`;
+          bdrClr = "rgba(108,213,145,0.45)";
+          bgClr = "rgba(108,213,145,0.22)";
+          break;
+        }
+        return "";
       }
     }
     if (!display) return "";
@@ -13427,9 +13455,11 @@ var _RenderRight = class {
         <span class="col-hdr-title">${this._t(cfg.titleKey)}</span>
         <div class="col-hdr-line"></div>
         ${pageInd}
-        <button class="to-close" data-action="overlay-close">
+        <!-- The same box and mark as the See More arrow it replaces: the button
+             swaps under the reader's cursor, so a smaller one is noticed. -->
+        <button class="to-close" data-action="overlay-close" style="width:28px;height:28px;margin:-2px 0">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
-               stroke-linecap="round" stroke-linejoin="round" width="14" height="14">
+               stroke-linecap="round" stroke-linejoin="round" width="16" height="16">
             <path d="M19 12H5M11 6l-6 6 6 6"/>
           </svg>
         </button>
@@ -16076,6 +16106,8 @@ var _WireMethods = class {
           const perPage = isMobile2 ? cols : cols * 2;
           startPage = Math.floor(itemsBefore / perPage);
         }
+        const _rc = this.shadowRoot?.getElementById("col-right");
+        this._overlayLockH = _rc ? _rc.offsetHeight : 0;
         this._overlay = { section: sec, page: startPage, tvPending: null };
         this._reRenderSection(sec);
         const cfg = this._getSectionOverlayConfig(sec);
@@ -16100,6 +16132,7 @@ var _WireMethods = class {
       e.stopPropagation();
       const sec = this._overlay?.section;
       this._overlay = { section: null, page: 0, tvPending: null };
+      this._overlayLockH = 0;
       this._reRenderSection(sec || "trending");
     }, { signal: ovSig });
     sr.querySelector('[data-action="overlay-first"]')?.addEventListener("click", (e) => {
@@ -16466,6 +16499,39 @@ var _WireMethods = class {
       setTimeout(() => commit(false), 300);
     }, 340);
   }
+  // Categories are not the same height — a row of posters stands taller than the
+  // statistics tiles — so paging through them resized the whole card, and with it
+  // everything below it on the dashboard. The tallest category seen becomes the
+  // floor for all of them, carried on the column as --sec-min-h so it applies the
+  // moment a page is drawn rather than a frame later. Desktop only: on a phone the
+  // column is one category wide and scrolls anyway.
+  _syncSecHeights(measure = true) {
+    const right = this.shadowRoot?.getElementById("col-right");
+    if (!right) return;
+    if (this._overlay?.section || window.matchMedia("(max-width: 900px)").matches) {
+      right.style.removeProperty("--sec-min-h");
+      right.style.removeProperty("--sec-wrap-h");
+      return;
+    }
+    if (measure) {
+      const cards = [...right.querySelectorAll(".sec-card:not(.sec-search)")];
+      if (cards.length) {
+        right.style.setProperty("--sec-min-h", "0px");
+        const tallest = Math.max(...cards.map((c) => c.offsetHeight));
+        this._secMaxH = Math.min(900, Math.max(this._secMaxH || 0, tallest));
+      }
+    }
+    if (this._secMaxH) right.style.setProperty("--sec-min-h", `${this._secMaxH}px`);
+    const wrap = right.querySelector(".rp-sections");
+    if (!wrap) return;
+    const perPage = Math.max(2, parseInt(this._cfgGet("discover", "categoriesCount", 3)) || 3) - 1;
+    const shown = wrap.querySelectorAll(".sec-card:not(.sec-search)").length;
+    if (measure && shown >= perPage) {
+      right.style.removeProperty("--sec-wrap-h");
+      this._secWrapH = Math.max(this._secWrapH || 0, wrap.offsetHeight);
+    }
+    if (this._secWrapH) right.style.setProperty("--sec-wrap-h", `${this._secWrapH}px`);
+  }
   _wireSearch() {
     const root = this.shadowRoot;
     const _srWrap = root.querySelector(".search-results-wrap");
@@ -16611,6 +16677,10 @@ var _WireMethods = class {
         } else if (this._rightMaxH) {
           right.style.minHeight = this._rightMaxH + "px";
         }
+      } else if (this._overlay?.section && this._overlayLockH) {
+        right.style.minHeight = this._overlayLockH + "px";
+      } else {
+        right.style.minHeight = "";
       }
       if (navWasVisible) {
         const newNav = right.querySelector(".rp-nav");
@@ -16627,7 +16697,9 @@ var _WireMethods = class {
       this._wireOverseerrButtons();
       this._wireSearch();
       this._wireMinimize();
+      this._syncSecHeights(false);
       requestAnimationFrame(() => {
+        this._syncSecHeights();
         this._checkBadgeOverflow();
         if (isMobile2 && sc && left) {
           const lRect = left.getBoundingClientRect();
@@ -16678,6 +16750,8 @@ var _WireMethods = class {
     this._wireOverseerrButtons();
     this._wireSearch();
     this._wireMinimize();
+    this._syncSecHeights(false);
+    requestAnimationFrame(() => this._syncSecHeights());
     this._afterRightPageSwitch(scrollState);
     this._resetFetchInterval();
     this._fetchVisibleCats();
@@ -42815,7 +42889,7 @@ var _MusicRenderMethods = class {
               </div>
             </div>
             ${this._musSearchPanel()}
-            ${m.search ? "" : `<div class="mus-albums" data-music-albums${this._musAlbH ? ` style="height:${this._musAlbH}px"` : ""}>
+            ${m.search ? "" : `<div class="mus-albums${this._musAlbH ? " is-sized" : ""}" data-music-albums${this._musAlbH ? ` style="height:${this._musAlbH}px"` : ""}>
               <div class="pp-grab mus-alb-grab" data-mus-alb-handle><span></span></div>
               ${m.loading ? `<div class="is-loading"><span>${this._t("loading")}</span></div>` : this._musicAlbumsHtml()}
             </div>`}
@@ -43836,7 +43910,9 @@ var _WireMusicMethods = class {
     const cols = getComputedStyle(grid).gridTemplateColumns.trim().split(/\s+/).length;
     const tileH = tile?.getBoundingClientRect().height || 0;
     const wrap = el.querySelector(".mus-alb-wrap") || grid;
-    const rows = this._isMob || !tileH ? 2 : Math.max(1, Math.floor((wrap.getBoundingClientRect().height + 12) / (tileH + 12)));
+    const gap = this._isMob ? 8 : 12;
+    const avail = wrap.getBoundingClientRect().height;
+    const rows = !tileH ? 2 : Math.max(1, Math.floor((avail + gap) / (tileH + gap)));
     if ((!cols || cols === m.cols) && rows === m.rows) return;
     const per = Math.max(2, (cols || m.cols || 4) * rows);
     const pages = Math.max(1, Math.ceil((m.albums?.length || 0) / per));
@@ -43899,16 +43975,19 @@ var _WireMusicMethods = class {
   // sets the height and that is what the modal keeps.
   _musFitAlbums(el) {
     if (!el?.isConnected) return;
-    if (this._musAlbH != null || this._isMob) return;
+    if (this._musAlbH != null) return;
     const albums = el?.querySelector(".mus-albums");
     const tile = el?.querySelector(".mus-alb");
     const grab = el?.querySelector(".mus-alb-grab");
     if (!albums || !tile) return;
-    const rowGap = 12;
+    const rowGap = this._isMob ? 8 : 12;
     const chrome = (grab?.getBoundingClientRect().height || 0) + 8 + 18;
     const rows = this._musicModal?.stream ? 1 : 2;
-    const h = Math.round(tile.getBoundingClientRect().height * rows + rowGap * (rows - 1) + chrome);
+    const tileH = tile.getBoundingClientRect().height;
     const max = this._musAlbMax(el);
+    const fit = Math.max(1, Math.floor((max - chrome + rowGap) / (tileH + rowGap)));
+    const want = Math.min(rows, fit);
+    const h = Math.round(tileH * want + rowGap * (want - 1) + chrome);
     this._musAlbH = Math.max(120, Math.min(max, h));
     albums.style.height = `${this._musAlbH}px`;
   }
@@ -43933,10 +44012,19 @@ var _WireMusicMethods = class {
       const startY = ev.clientY;
       const startH = panel.getBoundingClientRect().height;
       const max = this._musAlbMax(el);
+      const tileH = el.querySelector(".mus-alb")?.getBoundingClientRect().height || 0;
+      const gap = this._isMob ? 8 : 12;
+      const chrome = (handle.getBoundingClientRect().height || 0) + 8 + 18;
+      const snap = (raw) => {
+        if (!tileH) return Math.max(120, raw);
+        const rows = Math.max(1, Math.round((raw - chrome + gap) / (tileH + gap)));
+        return Math.round(chrome + rows * tileH + gap * (rows - 1));
+      };
       handle.classList.add("is-dragging");
       handle.setPointerCapture(ev.pointerId);
       const move = (e) => {
-        const h = Math.round(Math.min(max, Math.max(120, startH - (e.clientY - startY))));
+        const raw = startH - (e.clientY - startY);
+        const h = Math.round(Math.min(max, Math.max(120, snap(raw))));
         panel.style.height = `${h}px`;
         this._musAlbH = h;
       };
@@ -45175,15 +45263,19 @@ var ArrStackCard = class extends HTMLElement {
       return "";
     }
   }
+  // The year is dropped on a phone: the header also carries the type filter,
+  // which grew by one when music arrived, and the close button was the part
+  // pushed off the edge. Nobody reads a week range to find out which year it is.
   _fmtWeekRange(start, end) {
     const locale = this._locale;
     const fmt = this._hass?.locale?.date_format || "DMY";
     const mon = (d) => new Intl.DateTimeFormat(locale, { month: "short" }).format(d);
     const s = start.getDate(), sm = mon(start);
     const e = end.getDate(), em = mon(end), y = end.getFullYear();
-    if (fmt === "MDY") return `${sm} ${s} \u2013 ${em} ${e}, ${y}`;
-    if (fmt === "YMD") return `${y} ${sm} ${s} \u2013 ${em} ${e}`;
-    return `${s} ${sm} \u2013 ${e} ${em} ${y}`;
+    const narrow = window.matchMedia("(max-width: 700px)").matches;
+    if (fmt === "MDY") return narrow ? `${sm} ${s} \u2013 ${em} ${e}` : `${sm} ${s} \u2013 ${em} ${e}, ${y}`;
+    if (fmt === "YMD") return narrow ? `${sm} ${s} \u2013 ${em} ${e}` : `${y} ${sm} ${s} \u2013 ${em} ${e}`;
+    return narrow ? `${s} ${sm} \u2013 ${e} ${em}` : `${s} ${sm} \u2013 ${e} ${em} ${y}`;
   }
   fmtPct(ratio) {
     if (ratio === void 0 || ratio === null || isNaN(ratio)) return "0%";
@@ -46022,6 +46114,8 @@ var ArrStackCard = class extends HTMLElement {
     this._wireMaintainerrPosters(right);
     this._wireTmdbNotice(right);
     this._wireLibraryTiles(right);
+    this._syncSecHeights(false);
+    requestAnimationFrame(() => this._syncSecHeights());
     if (this._searchActive) {
       const srWrap = right.querySelector(".search-results-wrap");
       if (srWrap) this._wireSearchResultCards(srWrap);
@@ -46355,10 +46449,12 @@ var ArrStackCard = class extends HTMLElement {
     if (right) this._wireMaintainerrPosters(right);
     if (right) this._wireTmdbNotice(right);
     if (right) this._wireLibraryTiles(right);
+    this._syncSecHeights(false);
     this._renderPopupEl();
     this._renderCalendarModalEl();
     this._wireMinimize();
     requestAnimationFrame(() => {
+      this._syncSecHeights();
       if (!window.matchMedia("(max-width: 900px)").matches) this._measureAndLockHeight();
       requestAnimationFrame(() => {
         this._checkBadgeOverflow();
@@ -46546,16 +46642,23 @@ var ArrStackCard = class extends HTMLElement {
       this._posterRatingsCache.set(key, false);
     });
   }
-  // TMDB voteAverage for a TV show — used as the IMDb-provider poster fallback when Sonarr
-  // has no ratings.imdb (Sonarr only ever carries a generic TheTVDB score). Uses Overseerr
-  // when configured, otherwise the direct public TMDB proxy (same source _discoverSvc uses
-  // elsewhere for discover data).
-  _fetchPosterTmdbVote(tmdbId) {
+  // TMDB voteAverage, used as the IMDb-provider poster fallback: Sonarr carries
+  // only a generic TheTVDB score, and a film can be in Radarr with no IMDb
+  // rating at all — the detail popup falls back to TMDB in both cases, so the
+  // poster does too. Uses Overseerr when configured, otherwise the direct
+  // public TMDB proxy (the same source _discoverSvc uses for discover data).
+  // Films and shows are cached apart: the two number their ids separately and
+  // the same id means different titles in each.
+  _tmdbVoteKey(tmdbId, isMovie) {
+    return `${isMovie ? "m" : "t"}${tmdbId}`;
+  }
+  _fetchPosterTmdbVote(tmdbId, isMovie = false) {
     if (!tmdbId) return;
-    const key = String(tmdbId);
+    const key = this._tmdbVoteKey(tmdbId, isMovie);
     if (this._posterTmdbVoteCache.has(key)) return;
     this._posterTmdbVoteCache.set(key, null);
-    this._callApi("GET", `arr_stack/${this._discoverSvc}/tv/${tmdbId}`).then((data) => {
+    const path = isMovie ? "movie" : "tv";
+    this._callApi("GET", `arr_stack/${this._discoverSvc}/${path}/${tmdbId}`).then((data) => {
       this._posterTmdbVoteCache.set(key, data?.voteAverage || false);
       this._render();
     }).catch(() => {
