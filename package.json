@@ -1,6 +1,6 @@
 {
   "name": "ha-episeerr-card",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Modular Home Assistant Lovelace card for the episeerr-ha integration",
   "private": true,
   "scripts": {

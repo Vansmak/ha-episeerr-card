@@ -11,20 +11,55 @@ const STYLE = `
   ha-card { padding: 16px; }
   .episeerr-panel + .episeerr-panel { margin-top: 24px; }
   .episeerr-panel h3 { margin: 0 0 8px; font-size: 1.05em; opacity: 0.8; }
-  .episeerr-lib-row {
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 6px 0; border-bottom: 1px solid var(--divider-color, #444);
-    gap: 12px;
-  }
-  .episeerr-lib-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .episeerr-lib-select {
-    background: var(--card-background-color, #1c1c1c);
-    color: var(--primary-text-color, #fff);
-    border: 1px solid var(--divider-color, #444);
-    border-radius: 4px; padding: 4px 6px; max-width: 45%;
-  }
   .episeerr-empty { opacity: 0.7; font-style: italic; }
   .episeerr-panel-todo { opacity: 0.6; font-style: italic; padding: 8px 0; }
+
+  .episeerr-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    gap: 12px;
+  }
+  .episeerr-tile {
+    position: relative;
+    aspect-ratio: 2 / 3;
+    border-radius: 8px;
+    overflow: hidden;
+    background: var(--card-background-color, #1c1c1c);
+    display: flex;
+    flex-direction: column;
+  }
+  .episeerr-tile-poster {
+    width: 100%; height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+  .episeerr-tile-noposter {
+    display: flex; align-items: center; justify-content: center;
+    color: var(--secondary-text-color, #888);
+    background: var(--secondary-background-color, #2a2a2a);
+  }
+  .episeerr-tile-overlay {
+    position: absolute; left: 0; right: 0; top: 0;
+    padding: 6px 8px 16px;
+    font-size: 0.82em;
+    line-height: 1.2;
+    color: #fff;
+    background: linear-gradient(to bottom, rgba(0,0,0,0.75), rgba(0,0,0,0));
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .episeerr-tile-select {
+    position: absolute; left: 4px; right: 4px; bottom: 4px;
+    font-size: 0.75em;
+    background: rgba(0,0,0,0.75);
+    color: #fff;
+    border: none;
+    border-radius: 4px;
+    padding: 3px 4px;
+    max-width: none;
+  }
 `;
 
 class EpiseerrCard extends HTMLElement {
