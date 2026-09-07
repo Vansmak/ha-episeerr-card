@@ -1,3 +1,24 @@
+# Episeerr Card (WIP fork)
+
+Forked 2026-09-07 from [martinargalas/ha-arr-stack-card](https://github.com/martinargalas/ha-arr-stack-card)
+(MIT). Everything below this point is the **original project's README**,
+kept for reference while porting - most of it doesn't apply here yet.
+
+Real source lives in `src/` (built with `npm run build` -> `episeerr-card.js`,
+matching `hacs.json`). `reference/` is the original shipped bundle split
+back into per-module files for porting reference only, not live source -
+see `reference/README.md`. Unlike the original (which proxies through a
+separate `arr-stack-integration` backend), this reads
+[episeerr-ha](https://github.com/Vansmak/episeerr-ha)'s entities straight
+off `hass.states` - see `src/episeerr-entities.js`.
+
+Panel status (config-driven, `panels: [...]` in card config - see
+`src/constants.js`): `library` implemented; `rules_pending`, `search_add`,
+`downloads`, `activity` planned but not built; `dispatcharr`/`xadarr` not
+yet decided whether they belong on this card at all.
+
+---
+
 # Arr Stack Card
 
 [![HACS](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/hacs/integration)

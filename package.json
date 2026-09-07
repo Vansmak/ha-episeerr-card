@@ -1,0 +1,13 @@
+{
+  "name": "ha-episeerr-card",
+  "version": "0.1.0",
+  "description": "Modular Home Assistant Lovelace card for the episeerr-ha integration",
+  "private": true,
+  "scripts": {
+    "build": "esbuild src/card.js --bundle --outfile=episeerr-card.js --format=esm --minify=false",
+    "watch": "npm run build -- --watch"
+  },
+  "devDependencies": {
+    "esbuild": "^0.23.0"
+  }
+}
