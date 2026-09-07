@@ -4,18 +4,29 @@ Forked 2026-09-07 from [martinargalas/ha-arr-stack-card](https://github.com/mart
 (MIT). Everything below this point is the **original project's README**,
 kept for reference while porting - most of it doesn't apply here yet.
 
-Real source lives in `src/` (built with `npm run build` -> `episeerr-card.js`,
-matching `hacs.json`). `reference/` is the original shipped bundle split
-back into per-module files for porting reference only, not live source -
-see `reference/README.md`. Unlike the original (which proxies through a
-separate `arr-stack-integration` backend), this reads
-[episeerr-ha](https://github.com/Vansmak/episeerr-ha)'s entities straight
-off `hass.states` - see `src/episeerr-entities.js`.
+**Architecture pivot (2026-09-07):** started as a from-scratch minimal
+card (still in `src/`, built with `npm run build`) reading
+[episeerr-ha](https://github.com/Vansmak/episeerr-ha)'s entities directly
+off `hass.states` - but a from-zero rebuild couldn't match the depth of
+the real thing (queue/history/blocklist/missing, a real library browser,
+carousel paging, real service icons) in any reasonable time. The deployed
+`episeerr-card.js` is now instead the **actual upstream bundle**
+(`arr-stack-card.js`, untouched, kept for diffing) run through
+`scripts/rebrand.py` - a pure rename (custom element name, editor name,
+picker entry) with zero behavior change - then hand-edited on top for
+Episeerr-specific pieces. Re-run `python3 scripts/rebrand.py` any time
+`git fetch upstream && git merge upstream/main` pulls in a new release,
+before re-applying whatever Episeerr edits have landed since.
 
-Panel status (config-driven, `panels: [...]` in card config - see
-`src/constants.js`): `library` implemented; `rules_pending`, `search_add`,
-`downloads`, `activity` planned but not built; `dispatcharr`/`xadarr` not
-yet decided whether they belong on this card at all.
+`src/` (the from-scratch attempt) and `reference/` (the bundle split into
+per-module files, `reference/README.md`) are kept as reference/salvage -
+the poster-grid and select-entity-driven rule editing built there are
+candidates to port into the real card, not dead code.
+
+Still depends on `arr_stack` (the original project's proxy backend
+integration) for everything Sonarr/Radarr/SABnzbd/etc. already cover -
+only the Episeerr-specific additions read `episeerr-ha`'s entities
+instead.
 
 ---
 
