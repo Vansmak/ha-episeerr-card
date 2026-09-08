@@ -83,21 +83,20 @@ NEW_METHODS = """].filter((i) => i._score > 0).sort((a, b) => b._score - a._scor
     }
     return { seriesMap, movieMap };
   }
+  // TV-only, deliberately: confirmed live 2026-09-08 that movies are
+  // usually unassigned by design (8/23 = 35%, most movies just aren't
+  // rule-managed) while series almost always are (1/99 = 1%) - mixing
+  // both in one list buries the one real TV gap under normal-for-movies
+  // noise. Joe: "rules are mostly for shows so maybe separate radarr and
+  // sonarr".
   _libUnassignedData() {
-    const { seriesMap, movieMap } = this._episeerrRuleMaps();
+    const { seriesMap } = this._episeerrRuleMaps();
     const isUnassigned = (rule) => !rule || rule === "unassigned" || rule === "None";
-    return [
-      ...(this._radarr || []).filter((m) => m.hasFile && isUnassigned(movieMap.get(m.id))).map((m) => ({
-        url: this._getRadarrPoster(m),
-        title: m.title,
-        _libType: "movie"
-      })),
-      ...(this._sonarr || []).filter((s) => (s.statistics?.episodeFileCount || 0) > 0 && isUnassigned(seriesMap.get(s.id))).map((s) => ({
-        url: this._getSonarrPoster(s),
-        title: s.title,
-        _libType: "tv"
-      }))
-    ].slice(0, 4);
+    return (this._sonarr || []).filter((s) => (s.statistics?.episodeFileCount || 0) > 0 && isUnassigned(seriesMap.get(s.id))).map((s) => ({
+      url: this._getSonarrPoster(s),
+      title: s.title,
+      _libType: "tv"
+    })).slice(0, 4);
   }
   _libUpcomingData() {
     const now = Date.now();
@@ -164,10 +163,9 @@ content = replace_once(G2_OLD, G2_NEW, content)
 FILTER_OLD = 'if (m.qualityKey === "toprated") base = base.filter((i) => (i.ratings?.imdb?.value || i.ratings?.tmdb?.value || i.ratings?.tvdb?.value || i.ratings?.tvMaze?.value || i.ratings?.trakt?.value || i.ratings?.value || 0) > 0);'
 FILTER_NEW = FILTER_OLD + (
     '\n    if (m.qualityKey === "unassigned") {\n'
-    "      const { seriesMap, movieMap } = this._episeerrRuleMaps();\n"
+    "      const { seriesMap } = this._episeerrRuleMaps();\n"
     '      const isUnassigned = (rule) => !rule || rule === "unassigned" || rule === "None";\n'
-    "      base = base.filter((i) => i._libType === \"movie\" ? isUnassigned(movieMap.get(i.id)) : "
-    'i._libType === "tv" ? isUnassigned(seriesMap.get(i.id)) : false);\n'
+    '      base = base.filter((i) => i._libType === "tv" && isUnassigned(seriesMap.get(i.id)));\n'
     "    }\n"
     '    if (m.qualityKey === "libupcoming") {\n'
     "      const now = Date.now();\n"
@@ -182,6 +180,19 @@ FILTER_NEW = FILTER_OLD + (
     "    }"
 )
 content = replace_once(FILTER_OLD, FILTER_NEW, content)
+
+# 7. Force typeKey to "tv" when opening the modal via the Unassigned tile/
+# tab, same treatment "topquality" already gets forcing "movies" - keeps
+# the modal's own type toggle consistent with what the data actually is.
+TYPEKEY_OLD = 'const typeKey = key === "movies" || key === "topquality" ? "movies" : key === "tv" ? "tv" : key === "music" ? "music"'
+TYPEKEY_NEW = 'const typeKey = key === "movies" || key === "topquality" ? "movies" : key === "tv" || key === "unassigned" ? "tv" : key === "music" ? "music"'
+content = replace_once(TYPEKEY_OLD, TYPEKEY_NEW, content)
+
+# 8. Disable the Movies/Music type-toggle buttons while Unassigned is
+# active, mirroring topquality's existing movies-only lockout.
+DISABLED_OLD = 'disabled: m.qualityKey === "topquality" && k !== "movies"'
+DISABLED_NEW = 'disabled: m.qualityKey === "topquality" && k !== "movies" || m.qualityKey === "unassigned" && k !== "tv"'
+content = replace_once(DISABLED_OLD, DISABLED_NEW, content)
 
 TARGET.write_text(content)
 print(f"customized {TARGET} ({len(content)} bytes)")

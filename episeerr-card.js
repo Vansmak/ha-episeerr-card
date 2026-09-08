@@ -34068,21 +34068,20 @@ var _LibraryMethods = class {
     }
     return { seriesMap, movieMap };
   }
+  // TV-only, deliberately: confirmed live 2026-09-08 that movies are
+  // usually unassigned by design (8/23 = 35%, most movies just aren't
+  // rule-managed) while series almost always are (1/99 = 1%) - mixing
+  // both in one list buries the one real TV gap under normal-for-movies
+  // noise. Joe: "rules are mostly for shows so maybe separate radarr and
+  // sonarr".
   _libUnassignedData() {
-    const { seriesMap, movieMap } = this._episeerrRuleMaps();
+    const { seriesMap } = this._episeerrRuleMaps();
     const isUnassigned = (rule) => !rule || rule === "unassigned" || rule === "None";
-    return [
-      ...(this._radarr || []).filter((m) => m.hasFile && isUnassigned(movieMap.get(m.id))).map((m) => ({
-        url: this._getRadarrPoster(m),
-        title: m.title,
-        _libType: "movie"
-      })),
-      ...(this._sonarr || []).filter((s) => (s.statistics?.episodeFileCount || 0) > 0 && isUnassigned(seriesMap.get(s.id))).map((s) => ({
-        url: this._getSonarrPoster(s),
-        title: s.title,
-        _libType: "tv"
-      }))
-    ].slice(0, 4);
+    return (this._sonarr || []).filter((s) => (s.statistics?.episodeFileCount || 0) > 0 && isUnassigned(seriesMap.get(s.id))).map((s) => ({
+      url: this._getSonarrPoster(s),
+      title: s.title,
+      _libType: "tv"
+    })).slice(0, 4);
   }
   _libUpcomingData() {
     const now = Date.now();
@@ -34154,7 +34153,7 @@ var _LibraryMethods = class {
       _saved = JSON.parse(localStorage.getItem("arr-lib-tabs") || "{}");
     } catch (_) {
     }
-    const typeKey = key === "movies" || key === "topquality" ? "movies" : key === "tv" ? "tv" : key === "music" ? "music" : key === "all" && ["movies", "tv", "music"].includes(_saved.typeKey) && !(_saved.typeKey === "music" && this._lidarrConfigured === false) ? _saved.typeKey : "all";
+    const typeKey = key === "movies" || key === "topquality" ? "movies" : key === "tv" || key === "unassigned" ? "tv" : key === "music" ? "music" : key === "all" && ["movies", "tv", "music"].includes(_saved.typeKey) && !(_saved.typeKey === "music" && this._lidarrConfigured === false) ? _saved.typeKey : "all";
     const qualityKey = key === "toprated" || key === "topquality" || key === "unassigned" || key === "libupcoming" ? key : null;
     const sortDef = qualityKey === "toprated" ? typeKey === "music" ? "rating" : "imdb" : qualityKey === "topquality" ? "quality" : "added";
     const _byType = (_saved.byType || {})[typeKey] || {};
@@ -34247,7 +34246,7 @@ var _LibraryMethods = class {
       // "All" has no obvious glyph, so it keeps its word; the other two are icons
       icon: k === "all" ? null : G1_LABELS[k],
       attr: `data-lib-tab-type="${k}"`,
-      disabled: m.qualityKey === "topquality" && k !== "movies"
+      disabled: m.qualityKey === "topquality" && k !== "movies" || m.qualityKey === "unassigned" && k !== "tv"
       // set below for music
     })), m.typeKey, {
       width: isMob ? 40 : 52,
@@ -35092,9 +35091,9 @@ var _LibraryMethods = class {
     if (m.qualityKey === "topquality") base = base.filter((i) => i._libType !== "music");
     if (m.qualityKey === "toprated") base = base.filter((i) => (i.ratings?.imdb?.value || i.ratings?.tmdb?.value || i.ratings?.tvdb?.value || i.ratings?.tvMaze?.value || i.ratings?.trakt?.value || i.ratings?.value || 0) > 0);
     if (m.qualityKey === "unassigned") {
-      const { seriesMap, movieMap } = this._episeerrRuleMaps();
+      const { seriesMap } = this._episeerrRuleMaps();
       const isUnassigned = (rule) => !rule || rule === "unassigned" || rule === "None";
-      base = base.filter((i) => i._libType === "movie" ? isUnassigned(movieMap.get(i.id)) : i._libType === "tv" ? isUnassigned(seriesMap.get(i.id)) : false);
+      base = base.filter((i) => i._libType === "tv" && isUnassigned(seriesMap.get(i.id)));
     }
     if (m.qualityKey === "libupcoming") {
       const now = Date.now();
