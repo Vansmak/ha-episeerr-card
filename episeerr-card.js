@@ -9595,30 +9595,39 @@ var _ArrMethods = class {
       if (use2) {
         await this._fetchSonarr2Profiles();
         await this._fetchSonarr2RootFolders();
+        const lookupResults = await this._callApi("GET", `arr_stack/sonarr2/lookup?tvdbId=${tvdbId}`);
+        const seriesData = Array.isArray(lookupResults) ? lookupResults[0] : lookupResults;
+        if (!seriesData) throw new Error("Series not found");
+        const rf = rootFolder || this._sonarr2RootFolders?.[0]?.path || "/tv";
+        const pId = profileId ? parseInt(profileId) : this._sonarr2Profiles?.[0]?.id ?? 1;
+        const seasonObjs = (seriesData.seasons || []).map((s) => ({ ...s, monitored: seasons.includes(s.seasonNumber) }));
+        try {
+          await this._callApi("POST", "arr_stack/sonarr2/series", {
+            ...seriesData,
+            seasons: seasonObjs,
+            qualityProfileId: pId,
+            rootFolderPath: rf,
+            monitored: true,
+            addOptions: { searchForMissingEpisodes: true, searchForCutoffUnmetEpisodes: false },
+            ...tagId ? { tags: [parseInt(tagId)] } : {}
+          });
+        } catch (_) {
+        }
       } else {
-        await this._fetchSonarrProfiles();
-        await this._fetchSonarrRootFolders();
-      }
-      const svcPath = use2 ? "sonarr2" : "sonarr";
-      const lookupResults = await this._callApi("GET", `arr_stack/${svcPath}/lookup?tvdbId=${tvdbId}`);
-      const seriesData = Array.isArray(lookupResults) ? lookupResults[0] : lookupResults;
-      if (!seriesData) throw new Error("Series not found");
-      const profiles = use2 ? this._sonarr2Profiles : this._sonarrProfiles;
-      const rootFolders = use2 ? this._sonarr2RootFolders : this._sonarrRootFolders;
-      const rf = rootFolder || rootFolders?.[0]?.path || "/tv";
-      const pId = profileId ? parseInt(profileId) : profiles?.[0]?.id ?? 1;
-      const seasonObjs = (seriesData.seasons || []).map((s) => ({ ...s, monitored: seasons.includes(s.seasonNumber) }));
-      try {
-        await this._callApi("POST", `arr_stack/${svcPath}/series`, {
-          ...seriesData,
-          seasons: seasonObjs,
-          qualityProfileId: pId,
-          rootFolderPath: rf,
-          monitored: true,
-          addOptions: { searchForMissingEpisodes: true, searchForCutoffUnmetEpisodes: false },
-          ...tagId ? { tags: [parseInt(tagId)] } : {}
-        });
-      } catch (_) {
+        const tmdbId = show?.tmdbId || show?.id;
+        await this._hass.callService("episeerr", "add_series", { tmdb_id: String(tmdbId) });
+        await this._fetchSonarr();
+        const added = (this._sonarrAll || []).find((s) => String(s.tvdbId) === String(tvdbId));
+        if (added && tagId) {
+          try {
+            await this._callApi("PUT", "arr_stack/sonarr/series-editor", {
+              seriesIds: [added.id],
+              tags: [parseInt(tagId)],
+              applyTags: "add"
+            });
+          } catch (_) {
+          }
+        }
       }
       setTimeout(() => this._fetchSonarr().then(() => {
         this._reRenderRight(true);
