@@ -33992,11 +33992,11 @@ var _LibraryMethods = class {
       this._libBuildTile("movies", "Movies", this._libMoviesData()),
       this._libBuildTile("tv", "TV Shows", this._libTvData()),
       this._libBuildTile("music", "Music", this._libMusicData()),
-      this._libBuildTile("toprated", "Top Rated", this._libTopRatedData())
+      this._libBuildTile("unassigned", "Unassigned", this._libUnassignedData())
     ] : [
       this._libBuildTile("movies", "Movies", this._libMoviesData()),
       this._libBuildTile("tv", "TV Shows", this._libTvData()),
-      this._libBuildTile("toprated", "Top Rated", this._libTopRatedData()),
+      this._libBuildTile("unassigned", "Unassigned", this._libUnassignedData()),
       this._libBuildTile("topquality", "Top Quality", this._libTopQualityData())
     ]).join("");
     const cols = 4;
@@ -34050,6 +34050,40 @@ var _LibraryMethods = class {
       }))
     ].filter((i) => i._score > 0).sort((a, b) => b._score - a._score).slice(0, 4);
   }
+  // Cross-references episeerr-ha's select.episeerr_* entities (one per
+  // Sonarr series / Radarr movie) by series_id/movie_id to find each
+  // item's Episeerr-assigned rule, without any new backend call - the data
+  // already lives in hass.states. Built once per call rather than scanning
+  // all of hass.states per item.
+  _episeerrRuleMaps() {
+    const states = this._hass?.states || {};
+    const seriesMap = /* @__PURE__ */ new Map();
+    const movieMap = /* @__PURE__ */ new Map();
+    for (const key in states) {
+      if (!key.startsWith("select.episeerr_")) continue;
+      const attrs = states[key].attributes || {};
+      const rule = states[key].state;
+      if (attrs.series_id != null) seriesMap.set(attrs.series_id, rule);
+      if (attrs.movie_id != null) movieMap.set(attrs.movie_id, rule);
+    }
+    return { seriesMap, movieMap };
+  }
+  _libUnassignedData() {
+    const { seriesMap, movieMap } = this._episeerrRuleMaps();
+    const isUnassigned = (rule) => !rule || rule === "unassigned" || rule === "None";
+    return [
+      ...(this._radarr || []).filter((m) => m.hasFile && isUnassigned(movieMap.get(m.id))).map((m) => ({
+        url: this._getRadarrPoster(m),
+        title: m.title,
+        _libType: "movie"
+      })),
+      ...(this._sonarr || []).filter((s) => (s.statistics?.episodeFileCount || 0) > 0 && isUnassigned(seriesMap.get(s.id))).map((s) => ({
+        url: this._getSonarrPoster(s),
+        title: s.title,
+        _libType: "tv"
+      }))
+    ].slice(0, 4);
+  }
   _libTopQualityData() {
     const Q = ["2160p", "1080p", "720p", "480p"];
     const rank = (q) => {
@@ -34097,7 +34131,7 @@ var _LibraryMethods = class {
     } catch (_) {
     }
     const typeKey = key === "movies" || key === "topquality" ? "movies" : key === "tv" ? "tv" : key === "music" ? "music" : key === "all" && ["movies", "tv", "music"].includes(_saved.typeKey) && !(_saved.typeKey === "music" && this._lidarrConfigured === false) ? _saved.typeKey : "all";
-    const qualityKey = key === "toprated" || key === "topquality" ? key : null;
+    const qualityKey = key === "toprated" || key === "topquality" || key === "unassigned" ? key : null;
     const sortDef = qualityKey === "toprated" ? typeKey === "music" ? "rating" : "imdb" : qualityKey === "topquality" ? "quality" : "added";
     const _byType = (_saved.byType || {})[typeKey] || {};
     const isTabNow = !this._isMob && window.matchMedia("(max-width:860px)").matches;
@@ -34203,7 +34237,8 @@ var _LibraryMethods = class {
     const sep = `<span class="mt-tb-sep"></span>`;
     const _ICO_RATED = `<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" style="pointer-events:none"><path d="M12 17.27 18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg>`;
     const _ICO_QUAL = `<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" style="pointer-events:none"><path d="M6 2h12l4 6-10 14L2 8zm1.2 2L4.6 7.6h4.2zm3.1 0-1.5 3.6h6.4L13.7 4zm6.5 0 1.5 3.6h4.2zM5.4 9.6 12 18.9l6.6-9.3z"/></svg>`;
-    const G2 = [["toprated", "Top Rated", _ICO_RATED], ["topquality", "Top Quality", _ICO_QUAL]];
+    const _ICO_UNASSIGNED = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="pointer-events:none"><circle cx="12" cy="12" r="9"/><line x1="12" y1="8" x2="12" y2="13"/><circle cx="12" cy="16.5" r="0.75" fill="currentColor" stroke="none"/></svg>`;
+    const G2 = [["unassigned", "Unassigned", _ICO_UNASSIGNED], ["topquality", "Top Quality", _ICO_QUAL]];
     const g2Btns = G2.map(([k, lbl, ico]) => {
       const on = k === m.qualityKey;
       const acc = "--tgl-on:rgba(255,160,0,0.9)";
@@ -35031,6 +35066,11 @@ var _LibraryMethods = class {
     else base = [...movies, ...tv];
     if (m.qualityKey === "topquality") base = base.filter((i) => i._libType !== "music");
     if (m.qualityKey === "toprated") base = base.filter((i) => (i.ratings?.imdb?.value || i.ratings?.tmdb?.value || i.ratings?.tvdb?.value || i.ratings?.tvMaze?.value || i.ratings?.trakt?.value || i.ratings?.value || 0) > 0);
+    if (m.qualityKey === "unassigned") {
+      const { seriesMap, movieMap } = this._episeerrRuleMaps();
+      const isUnassigned = (rule) => !rule || rule === "unassigned" || rule === "None";
+      base = base.filter((i) => i._libType === "movie" ? isUnassigned(movieMap.get(i.id)) : i._libType === "tv" ? isUnassigned(seriesMap.get(i.id)) : false);
+    }
     if (m.qualityKey === "topquality") base = base.filter((i) => i._libType === "movie" && !!i.hasFile);
     return base;
   }
