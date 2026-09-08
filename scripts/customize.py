@@ -72,6 +72,13 @@ NEW_METHODS = """].filter((i) => i._score > 0).sort((a, b) => b._score - a._scor
   // item's Episeerr-assigned rule, without any new backend call - the data
   // already lives in hass.states. Built once per call rather than scanning
   // all of hass.states per item.
+  //
+  // Keys are String()-coerced deliberately: episeerr-ha's series_id/
+  // movie_id attributes and arr_stack's own item.id both come through as
+  // JSON numbers in principle, but this codebase's own existing code
+  // (_qaLibTargets, elsewhere) already defensively String()-coerces id
+  // comparisons across its data sources rather than trust they arrive as
+  // the same JS type - matching that pattern here rather than assuming.
   _episeerrRuleMaps() {
     const states = this._hass?.states || {};
     const seriesMap = /* @__PURE__ */ new Map();
@@ -80,8 +87,8 @@ NEW_METHODS = """].filter((i) => i._score > 0).sort((a, b) => b._score - a._scor
       if (!key.startsWith("select.episeerr_")) continue;
       const attrs = states[key].attributes || {};
       const rule = states[key].state;
-      if (attrs.series_id != null) seriesMap.set(attrs.series_id, rule);
-      if (attrs.movie_id != null) movieMap.set(attrs.movie_id, rule);
+      if (attrs.series_id != null) seriesMap.set(String(attrs.series_id), rule);
+      if (attrs.movie_id != null) movieMap.set(String(attrs.movie_id), rule);
     }
     return { seriesMap, movieMap };
   }
@@ -90,10 +97,10 @@ NEW_METHODS = """].filter((i) => i._score > 0).sort((a, b) => b._score - a._scor
   // there's no equivalent movie-watch tracking in this data source.
   _libRecentWatchedData() {
     const watched = this._hass?.states?.["sensor.episeerr_activity_feed"]?.attributes?.watched || [];
-    const bySeriesId = new Map((this._sonarr || []).map((s) => [s.id, s]));
+    const bySeriesId = new Map((this._sonarr || []).map((s) => [String(s.id), s]));
     const out = [];
     for (const w of watched) {
-      const s = bySeriesId.get(w.series_id);
+      const s = bySeriesId.get(String(w.series_id));
       if (!s) continue;
       out.push({ url: this._getSonarrPoster(s), title: s.title, _libType: "tv" });
       if (out.length === 4) break;
@@ -171,9 +178,9 @@ FILTER_OLD = 'if (m.qualityKey === "toprated") base = base.filter((i) => (i.rati
 FILTER_NEW = FILTER_OLD + (
     '\n    if (m.qualityKey === "recentwatch") {\n'
     '      const watched = this._hass?.states?.["sensor.episeerr_activity_feed"]?.attributes?.watched || [];\n'
-    "      const watchedMap = new Map(watched.map((w) => [w.series_id, w.watched_date]));\n"
-    '      base = base.filter((i) => i._libType === "tv" && watchedMap.has(i.id))'
-    ".map((i) => ({ ...i, _watchedAt: watchedMap.get(i.id) }));\n"
+    "      const watchedMap = new Map(watched.map((w) => [String(w.series_id), w.watched_date]));\n"
+    '      base = base.filter((i) => i._libType === "tv" && watchedMap.has(String(i.id)))'
+    ".map((i) => ({ ...i, _watchedAt: watchedMap.get(String(i.id)) }));\n"
     "    }\n"
     '    if (m.qualityKey === "libupcoming") {\n'
     "      const now = Date.now();\n"
@@ -241,7 +248,7 @@ QAITEMS_NEW = """    if (statsSrc && this._qaHasFiles(d)) {
     for (const key in states) {
       if (!key.startsWith("select.episeerr_")) continue;
       const attrs = states[key].attributes || {};
-      if (isTv ? attrs.series_id === arrId : attrs.movie_id === arrId) return key;
+      if (isTv ? String(attrs.series_id) === String(arrId) : String(attrs.movie_id) === String(arrId)) return key;
     }
     return null;
   }
@@ -311,8 +318,8 @@ FILTERPRED_NEW = FILTERPRED_OLD + (
     '\n    if (m.filter && m.filter.startsWith("episeerrRule:")) {\n'
     '      const rule = m.filter.slice("episeerrRule:".length);\n'
     "      const { seriesMap, movieMap } = this._episeerrRuleMaps();\n"
-    "      items = items.filter((i) => i._libType === \"movie\" ? movieMap.get(i.id) === rule : "
-    'i._libType === "tv" ? seriesMap.get(i.id) === rule : false);\n'
+    "      items = items.filter((i) => i._libType === \"movie\" ? movieMap.get(String(i.id)) === rule : "
+    'i._libType === "tv" ? seriesMap.get(String(i.id)) === rule : false);\n'
     "    }"
 )
 content = replace_once(FILTERPRED_OLD, FILTERPRED_NEW, content)
@@ -345,7 +352,7 @@ RIGHTTAGS_OLD = """    const rightTags = [
       seasons && this._uiBadge(`${seasons} season${seasons != 1 ? "s" : ""}`, "neutral")
     ].filter(Boolean).join("");"""
 RIGHTTAGS_NEW = """    const { seriesMap: _rmSeries, movieMap: _rmMovie } = this._episeerrRuleMaps();
-    const ruleTxt = isMovie ? _rmMovie.get(item.id) : _rmSeries.get(item.id);
+    const ruleTxt = isMovie ? _rmMovie.get(String(item.id)) : _rmSeries.get(String(item.id));
     const rightTags = [
       ruleTxt && ruleTxt !== "None" && this._uiBadge(this._escHtml(ruleTxt), "neutral"),
       sizeTxt && this._uiBadge(sizeTxt, "neutral"),
