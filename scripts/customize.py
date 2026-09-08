@@ -194,5 +194,85 @@ DISABLED_OLD = 'disabled: m.qualityKey === "topquality" && k !== "movies"'
 DISABLED_NEW = 'disabled: m.qualityKey === "topquality" && k !== "movies" || m.qualityKey === "unassigned" && k !== "tv"'
 content = replace_once(DISABLED_OLD, DISABLED_NEW, content)
 
+# 9. Item popup: add "Episeerr Rule" to the existing quick-actions ("qa")
+# menu system (Search/Remove/Cast/Stats already live here) - Joe: "maybe
+# actions can also be rule change, search for etc" (search already exists
+# via this same menu; rule-change didn't). Reuses the standard
+# select.select_option service against episeerr-ha's select.episeerr_*
+# entity for this item, matched by the raw Sonarr/Radarr id already
+# tracked on the popup data object (d._sonarrSeries.id / d._radarrId) -
+# the same fields _qaQueueTarget() already relies on, so only shows for
+# items actually in the library (nothing to set a rule on otherwise).
+QAITEMS_OLD = """    if (statsSrc && this._qaHasFiles(d)) {
+      items.push({ key: "stats", label: this._t("qaStats"), icon: statsSrc });
+    }
+    return items;
+  }"""
+QAITEMS_NEW = """    if (statsSrc && this._qaHasFiles(d)) {
+      items.push({ key: "stats", label: this._t("qaStats"), icon: statsSrc });
+    }
+    if (this._episeerrRuleTarget(d)) {
+      items.push({ key: "episeerrRule", label: "Episeerr Rule" });
+    }
+    return items;
+  }
+  _episeerrRuleTarget(d) {
+    const isTv = d._type === POPUP_TYPE.SONARR || d._type === POPUP_TYPE.TV;
+    const arrId = isTv ? d._sonarrSeries?.id : d._radarrId;
+    if (arrId == null) return null;
+    const states = this._hass?.states || {};
+    for (const key in states) {
+      if (!key.startsWith("select.episeerr_")) continue;
+      const attrs = states[key].attributes || {};
+      if (isTv ? attrs.series_id === arrId : attrs.movie_id === arrId) return key;
+    }
+    return null;
+  }
+  _qaEpiseerrRuleRowsHtml(d) {
+    const entityId = this._episeerrRuleTarget(d);
+    if (!entityId) return this._qaLoadingRow();
+    const st = this._hass.states[entityId];
+    const current = st.state;
+    const options = st.attributes.options || [];
+    return options.map((o) => `<button class="qa-item qa-sub-item${o === current ? " qa-item-on" : ""}" data-qa-rule="${this._escHtml(o)}">${this._escHtml(o)}</button>`).join("");
+  }
+  async _qaSetEpiseerrRule(d, rule) {
+    const entityId = this._episeerrRuleTarget(d);
+    if (!entityId) return;
+    this._ppMenu = null;
+    this._qaShowStatus(this._t("mtProcessing") || "\\u2026", { spin: true }, 0);
+    try {
+      await this._hass.callService("select", "select_option", { entity_id: entityId, option: rule });
+      this._qaShowStatus("Rule updated");
+    } catch (e) {
+      this._qaShowStatus(`Failed: ${this._qaErrText(e)}`, { err: true }, 7e3);
+    }
+  }"""
+content = replace_once(QAITEMS_OLD, QAITEMS_NEW, content)
+
+# 10. Wire the new sub-drawer's rows.
+SUBROWS_OLD = """      if (key === "lib") {
+        return this._qaLibTargets(d).map((t) => `<button class="qa-item qa-sub-item" data-qa-lib="${t.inst}">${this._escHtml(t.label)}</button>`).join("");
+      }"""
+SUBROWS_NEW = SUBROWS_OLD + """
+      if (key === "episeerrRule") {
+        return this._qaEpiseerrRuleRowsHtml(d);
+      }"""
+content = replace_once(SUBROWS_OLD, SUBROWS_NEW, content)
+
+# 11. Wire the click handler for picking a rule row.
+QACLICK_OLD = """      const qaLib = e.target.closest("[data-qa-lib]");
+      if (qaLib) {
+        this._qaShowInLibrary(this._popup, qaLib.dataset.qaLib);
+        return;
+      }"""
+QACLICK_NEW = QACLICK_OLD + """
+      const qaRule = e.target.closest("[data-qa-rule]");
+      if (qaRule) {
+        this._qaSetEpiseerrRule(this._popup, qaRule.dataset.qaRule);
+        return;
+      }"""
+content = replace_once(QACLICK_OLD, QACLICK_NEW, content)
+
 TARGET.write_text(content)
 print(f"customized {TARGET} ({len(content)} bytes)")
