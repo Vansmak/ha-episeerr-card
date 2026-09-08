@@ -33997,7 +33997,7 @@ var _LibraryMethods = class {
       this._libBuildTile("movies", "Movies", this._libMoviesData()),
       this._libBuildTile("tv", "TV Shows", this._libTvData()),
       this._libBuildTile("unassigned", "Unassigned", this._libUnassignedData()),
-      this._libBuildTile("topquality", "Top Quality", this._libTopQualityData())
+      this._libBuildTile("libupcoming", "Upcoming", this._libUpcomingData())
     ]).join("");
     const cols = 4;
     const grid = `<div class="mgrid" style="grid-template-columns:repeat(${cols},1fr)">${tiles}</div>`;
@@ -34084,6 +34084,22 @@ var _LibraryMethods = class {
       }))
     ].slice(0, 4);
   }
+  _libUpcomingData() {
+    const now = Date.now();
+    const isFuture = (d) => !!d && new Date(d).getTime() > now;
+    return [
+      ...(this._radarr || []).filter((m) => isFuture(m.digitalRelease) || isFuture(m.inCinemas) || isFuture(m.physicalRelease)).map((m) => ({
+        url: this._getRadarrPoster(m),
+        title: m.title,
+        _libType: "movie"
+      })),
+      ...(this._sonarr || []).filter((s) => isFuture(s.nextAiring)).map((s) => ({
+        url: this._getSonarrPoster(s),
+        title: s.title,
+        _libType: "tv"
+      }))
+    ].slice(0, 4);
+  }
   _libTopQualityData() {
     const Q = ["2160p", "1080p", "720p", "480p"];
     const rank = (q) => {
@@ -34131,7 +34147,7 @@ var _LibraryMethods = class {
     } catch (_) {
     }
     const typeKey = key === "movies" || key === "topquality" ? "movies" : key === "tv" ? "tv" : key === "music" ? "music" : key === "all" && ["movies", "tv", "music"].includes(_saved.typeKey) && !(_saved.typeKey === "music" && this._lidarrConfigured === false) ? _saved.typeKey : "all";
-    const qualityKey = key === "toprated" || key === "topquality" || key === "unassigned" ? key : null;
+    const qualityKey = key === "toprated" || key === "topquality" || key === "unassigned" || key === "libupcoming" ? key : null;
     const sortDef = qualityKey === "toprated" ? typeKey === "music" ? "rating" : "imdb" : qualityKey === "topquality" ? "quality" : "added";
     const _byType = (_saved.byType || {})[typeKey] || {};
     const isTabNow = !this._isMob && window.matchMedia("(max-width:860px)").matches;
@@ -34238,7 +34254,8 @@ var _LibraryMethods = class {
     const _ICO_RATED = `<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" style="pointer-events:none"><path d="M12 17.27 18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg>`;
     const _ICO_QUAL = `<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" style="pointer-events:none"><path d="M6 2h12l4 6-10 14L2 8zm1.2 2L4.6 7.6h4.2zm3.1 0-1.5 3.6h6.4L13.7 4zm6.5 0 1.5 3.6h4.2zM5.4 9.6 12 18.9l6.6-9.3z"/></svg>`;
     const _ICO_UNASSIGNED = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="pointer-events:none"><circle cx="12" cy="12" r="9"/><line x1="12" y1="8" x2="12" y2="13"/><circle cx="12" cy="16.5" r="0.75" fill="currentColor" stroke="none"/></svg>`;
-    const G2 = [["unassigned", "Unassigned", _ICO_UNASSIGNED], ["topquality", "Top Quality", _ICO_QUAL]];
+    const _ICO_UPCOMING = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="pointer-events:none"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>`;
+    const G2 = [["unassigned", "Unassigned", _ICO_UNASSIGNED], ["libupcoming", "Upcoming", _ICO_UPCOMING]];
     const g2Btns = G2.map(([k, lbl, ico]) => {
       const on = k === m.qualityKey;
       const acc = "--tgl-on:rgba(255,160,0,0.9)";
@@ -35070,6 +35087,11 @@ var _LibraryMethods = class {
       const { seriesMap, movieMap } = this._episeerrRuleMaps();
       const isUnassigned = (rule) => !rule || rule === "unassigned" || rule === "None";
       base = base.filter((i) => i._libType === "movie" ? isUnassigned(movieMap.get(i.id)) : i._libType === "tv" ? isUnassigned(seriesMap.get(i.id)) : false);
+    }
+    if (m.qualityKey === "libupcoming") {
+      const now = Date.now();
+      const isFuture = (d) => !!d && new Date(d).getTime() > now;
+      base = base.filter((i) => i._libType === "movie" ? isFuture(i.digitalRelease) || isFuture(i.inCinemas) || isFuture(i.physicalRelease) : i._libType === "tv" ? isFuture(i.nextAiring) : false);
     }
     if (m.qualityKey === "topquality") base = base.filter((i) => i._libType === "movie" && !!i.hasFile);
     return base;

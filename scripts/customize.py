@@ -14,9 +14,14 @@ re-diff at that point - this is a hand-applied patch, not a real merge).
 using episeerr-ha's select.episeerr_* entities cross-referenced by
 series_id/movie_id) since Joe has zero use for IMDB-rating sorting but
 constant use for "what did I forget to assign a rule to". "Top Quality"/◆
-is untouched for now - repurposing it needs a rule-picker dropdown, not a
-boolean toggle, which doesn't fit this button's shape without more design
-work.
+becomes "Upcoming" - library items with a real future date (Sonarr's
+per-series nextAiring, or Radarr's digitalRelease/inCinemas/
+physicalRelease), i.e. "which of what I already have has something
+coming" - distinct from the separate "Upcoming Movies"/"New Shows"
+categories elsewhere on the dashboard, which are TMDB discovery of things
+NOT yet in the library. A true "By Rule" (rule-picker dropdown) was the
+original idea for this slot but doesn't fit a boolean-toggle button;
+Upcoming does, cleanly, with no new UI needed.
 
 Usage: python3 scripts/customize.py  (after scripts/rebrand.py)
 """
@@ -83,19 +88,41 @@ NEW_METHODS = """].filter((i) => i._score > 0).sort((a, b) => b._score - a._scor
       }))
     ].slice(0, 4);
   }
+  _libUpcomingData() {
+    const now = Date.now();
+    const isFuture = (d) => !!d && new Date(d).getTime() > now;
+    return [
+      ...(this._radarr || []).filter((m) => isFuture(m.digitalRelease) || isFuture(m.inCinemas) || isFuture(m.physicalRelease)).map((m) => ({
+        url: this._getRadarrPoster(m),
+        title: m.title,
+        _libType: "movie"
+      })),
+      ...(this._sonarr || []).filter((s) => isFuture(s.nextAiring)).map((s) => ({
+        url: this._getSonarrPoster(s),
+        title: s.title,
+        _libType: "tv"
+      }))
+    ].slice(0, 4);
+  }
   _libTopQualityData() {"""
 content = replace_once(ANCHOR, NEW_METHODS, content)
 
-# 3. Modal: qualityKey computation needs to recognize "unassigned" as a
-# quality-tab key (typeKey/sort-default logic already fall through to the
-# same defaults "toprated" gets - see script docstring / README, no other
-# changes needed there).
+# 3. Compact tile: the ◆ slot's call site (Top Quality -> Upcoming).
+TILE2_OLD = '"topquality", "Top Quality", this._libTopQualityData()'
+TILE2_NEW = '"libupcoming", "Upcoming", this._libUpcomingData()'
+content = replace_once(TILE2_OLD, TILE2_NEW, content)
+
+# 4. Modal: qualityKey computation needs to recognize both new quality-tab
+# keys (typeKey/sort-default logic already fall through to the same
+# defaults "toprated"/"topquality" got - see script docstring, no other
+# changes needed there). The old "topquality" branch below is now dead
+# code (nothing emits that key anymore) - left in place, harmless.
 QK_OLD = 'const qualityKey = key === "toprated" || key === "topquality" ? key : null;'
-QK_NEW = 'const qualityKey = key === "toprated" || key === "topquality" || key === "unassigned" ? key : null;'
+QK_NEW = 'const qualityKey = key === "toprated" || key === "topquality" || key === "unassigned" || key === "libupcoming" ? key : null;'
 content = replace_once(QK_OLD, QK_NEW, content)
 
-# 4. Modal toolbar: the ★ button itself - new icon (a simple "tag-off"
-# glyph, fill-style to match _ICO_RATED/_ICO_QUAL) plus the G2 array entry.
+# 5. Modal toolbar: both button icons/labels - new icons (fill-style to
+# match _ICO_RATED/_ICO_QUAL) plus the G2 array entries.
 G2_OLD = 'const G2 = [["toprated", "Top Rated", _ICO_RATED], ["topquality", "Top Quality", _ICO_QUAL]];'
 G2_NEW = (
     'const _ICO_UNASSIGNED = `<svg viewBox="0 0 24 24" width="14" height="14" '
@@ -103,14 +130,18 @@ G2_NEW = (
     'stroke-linejoin="round" style="pointer-events:none"><circle cx="12" cy="12" r="9"/>'
     '<line x1="12" y1="8" x2="12" y2="13"/><circle cx="12" cy="16.5" r="0.75" '
     'fill="currentColor" stroke="none"/></svg>`;\n'
+    '    const _ICO_UPCOMING = `<svg viewBox="0 0 24 24" width="14" height="14" '
+    'fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" '
+    'stroke-linejoin="round" style="pointer-events:none"><rect x="3" y="4" width="18" '
+    'height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" '
+    'x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>`;\n'
     '    const G2 = [["unassigned", "Unassigned", _ICO_UNASSIGNED], '
-    '["topquality", "Top Quality", _ICO_QUAL]];'
+    '["libupcoming", "Upcoming", _ICO_UPCOMING]];'
 )
 content = replace_once(G2_OLD, G2_NEW, content)
 
-# 5. The real grid filter (this is what actually populates the expanded
-# modal's grid when the ★-turned-Unassigned tab is active, not just the
-# compact tile preview).
+# 6. The real grid filter (this is what actually populates the expanded
+# modal's grid when a tab is active, not just the compact tile preview).
 FILTER_OLD = 'if (m.qualityKey === "toprated") base = base.filter((i) => (i.ratings?.imdb?.value || i.ratings?.tmdb?.value || i.ratings?.tvdb?.value || i.ratings?.tvMaze?.value || i.ratings?.trakt?.value || i.ratings?.value || 0) > 0);'
 FILTER_NEW = FILTER_OLD + (
     '\n    if (m.qualityKey === "unassigned") {\n'
@@ -118,6 +149,13 @@ FILTER_NEW = FILTER_OLD + (
     '      const isUnassigned = (rule) => !rule || rule === "unassigned" || rule === "None";\n'
     "      base = base.filter((i) => i._libType === \"movie\" ? isUnassigned(movieMap.get(i.id)) : "
     'i._libType === "tv" ? isUnassigned(seriesMap.get(i.id)) : false);\n'
+    "    }\n"
+    '    if (m.qualityKey === "libupcoming") {\n'
+    "      const now = Date.now();\n"
+    '      const isFuture = (d) => !!d && new Date(d).getTime() > now;\n'
+    "      base = base.filter((i) => i._libType === \"movie\" ? "
+    "isFuture(i.digitalRelease) || isFuture(i.inCinemas) || isFuture(i.physicalRelease) : "
+    'i._libType === "tv" ? isFuture(i.nextAiring) : false);\n'
     "    }"
 )
 content = replace_once(FILTER_OLD, FILTER_NEW, content)
