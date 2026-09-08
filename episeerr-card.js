@@ -34035,11 +34035,11 @@ var _LibraryMethods = class {
       this._libBuildTile("movies", "Movies", this._libMoviesData()),
       this._libBuildTile("tv", "TV Shows", this._libTvData()),
       this._libBuildTile("music", "Music", this._libMusicData()),
-      this._libBuildTile("unassigned", "Unassigned", this._libUnassignedData())
+      this._libBuildTile("recentwatch", "Recently Watched", this._libRecentWatchedData())
     ] : [
       this._libBuildTile("movies", "Movies", this._libMoviesData()),
       this._libBuildTile("tv", "TV Shows", this._libTvData()),
-      this._libBuildTile("unassigned", "Unassigned", this._libUnassignedData()),
+      this._libBuildTile("recentwatch", "Recently Watched", this._libRecentWatchedData()),
       this._libBuildTile("libupcoming", "Upcoming", this._libUpcomingData())
     ]).join("");
     const cols = 4;
@@ -34111,20 +34111,20 @@ var _LibraryMethods = class {
     }
     return { seriesMap, movieMap };
   }
-  // TV-only, deliberately: confirmed live 2026-09-08 that movies are
-  // usually unassigned by design (8/23 = 35%, most movies just aren't
-  // rule-managed) while series almost always are (1/99 = 1%) - mixing
-  // both in one list buries the one real TV gap under normal-for-movies
-  // noise. Joe: "rules are mostly for shows so maybe separate radarr and
-  // sonarr".
-  _libUnassignedData() {
-    const { seriesMap } = this._episeerrRuleMaps();
-    const isUnassigned = (rule) => !rule || rule === "unassigned" || rule === "None";
-    return (this._sonarr || []).filter((s) => (s.statistics?.episodeFileCount || 0) > 0 && isUnassigned(seriesMap.get(s.id))).map((s) => ({
-      url: this._getSonarrPoster(s),
-      title: s.title,
-      _libType: "tv"
-    })).slice(0, 4);
+  // TV-only: the "watched" list (episeerr-ha's activity_feed sensor,
+  // ultimately from Episeerr's watched.json) only ever records episodes -
+  // there's no equivalent movie-watch tracking in this data source.
+  _libRecentWatchedData() {
+    const watched = this._hass?.states?.["sensor.episeerr_activity_feed"]?.attributes?.watched || [];
+    const bySeriesId = new Map((this._sonarr || []).map((s) => [s.id, s]));
+    const out = [];
+    for (const w of watched) {
+      const s = bySeriesId.get(w.series_id);
+      if (!s) continue;
+      out.push({ url: this._getSonarrPoster(s), title: s.title, _libType: "tv" });
+      if (out.length === 4) break;
+    }
+    return out;
   }
   _libUpcomingData() {
     const now = Date.now();
@@ -34196,9 +34196,9 @@ var _LibraryMethods = class {
       _saved = JSON.parse(localStorage.getItem("arr-lib-tabs") || "{}");
     } catch (_) {
     }
-    const typeKey = key === "movies" || key === "topquality" ? "movies" : key === "tv" || key === "unassigned" ? "tv" : key === "music" ? "music" : key === "all" && ["movies", "tv", "music"].includes(_saved.typeKey) && !(_saved.typeKey === "music" && this._lidarrConfigured === false) ? _saved.typeKey : "all";
-    const qualityKey = key === "toprated" || key === "topquality" || key === "unassigned" || key === "libupcoming" ? key : null;
-    const sortDef = qualityKey === "toprated" ? typeKey === "music" ? "rating" : "imdb" : qualityKey === "topquality" ? "quality" : "added";
+    const typeKey = key === "movies" || key === "topquality" ? "movies" : key === "tv" || key === "recentwatch" ? "tv" : key === "music" ? "music" : key === "all" && ["movies", "tv", "music"].includes(_saved.typeKey) && !(_saved.typeKey === "music" && this._lidarrConfigured === false) ? _saved.typeKey : "all";
+    const qualityKey = key === "toprated" || key === "topquality" || key === "recentwatch" || key === "libupcoming" ? key : null;
+    const sortDef = qualityKey === "toprated" ? typeKey === "music" ? "rating" : "imdb" : qualityKey === "topquality" ? "quality" : qualityKey === "recentwatch" ? "watchedDate" : "added";
     const _byType = (_saved.byType || {})[typeKey] || {};
     const isTabNow = !this._isMob && window.matchMedia("(max-width:860px)").matches;
     this._libModal = {
@@ -34289,7 +34289,7 @@ var _LibraryMethods = class {
       // "All" has no obvious glyph, so it keeps its word; the other two are icons
       icon: k === "all" ? null : G1_LABELS[k],
       attr: `data-lib-tab-type="${k}"`,
-      disabled: m.qualityKey === "topquality" && k !== "movies" || m.qualityKey === "unassigned" && k !== "tv"
+      disabled: m.qualityKey === "topquality" && k !== "movies" || m.qualityKey === "recentwatch" && k !== "tv"
       // set below for music
     })), m.typeKey, {
       width: isMob ? 40 : 52,
@@ -34303,9 +34303,9 @@ var _LibraryMethods = class {
     const sep = `<span class="mt-tb-sep"></span>`;
     const _ICO_RATED = `<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" style="pointer-events:none"><path d="M12 17.27 18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg>`;
     const _ICO_QUAL = `<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" style="pointer-events:none"><path d="M6 2h12l4 6-10 14L2 8zm1.2 2L4.6 7.6h4.2zm3.1 0-1.5 3.6h6.4L13.7 4zm6.5 0 1.5 3.6h4.2zM5.4 9.6 12 18.9l6.6-9.3z"/></svg>`;
-    const _ICO_UNASSIGNED = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="pointer-events:none"><circle cx="12" cy="12" r="9"/><line x1="12" y1="8" x2="12" y2="13"/><circle cx="12" cy="16.5" r="0.75" fill="currentColor" stroke="none"/></svg>`;
+    const _ICO_WATCHED = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="pointer-events:none"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg>`;
     const _ICO_UPCOMING = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="pointer-events:none"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>`;
-    const G2 = [["unassigned", "Unassigned", _ICO_UNASSIGNED], ["libupcoming", "Upcoming", _ICO_UPCOMING]];
+    const G2 = [["recentwatch", "Recently Watched", _ICO_WATCHED], ["libupcoming", "Upcoming", _ICO_UPCOMING]];
     const g2Btns = G2.map(([k, lbl, ico]) => {
       const on = k === m.qualityKey;
       const acc = "--tgl-on:rgba(255,160,0,0.9)";
@@ -34441,6 +34441,7 @@ var _LibraryMethods = class {
       ${sortDropList}
     </span>`;
     const FILTER_OPTS = [["all", "All"], ["monitored", "Monitored Only"], ["unmonitored", "Unmonitored"], ["missing", "Missing"], ["wanted", "Wanted"], ["cutoff", "Cutoff Unmet"]];
+    this._episeerrRuleFilterOptions().forEach((opt) => FILTER_OPTS.push(opt));
     const filterSel = isMob ? this._actIconSelect({ id: "lib-filter-sel", kind: "filter", value: m.filter, items: FILTER_OPTS }) : this._mtSelect("lib-filter-sel", FILTER_OPTS, m.filter, "all");
     const _ICO_REFRESH = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="pointer-events:none"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>`;
     const _ICO_RSS = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="pointer-events:none"><path d="M4 11a9 9 0 0 1 9 9"/><path d="M4 4a16 16 0 0 1 16 16"/><circle cx="5" cy="19" r="1" fill="currentColor"/></svg>`;
@@ -34988,7 +34989,10 @@ var _LibraryMethods = class {
     const sizeTxt = sizeBytes ? this.fmtSize(sizeBytes) : "";
     const profile = item.qualityProfileName || "";
     const seasons = !isMovie ? item.statistics?.seasonCount || item.seasonCount || "" : "";
+    const { seriesMap: _rmSeries, movieMap: _rmMovie } = this._episeerrRuleMaps();
+    const ruleTxt = isMovie ? _rmMovie.get(item.id) : _rmSeries.get(item.id);
     const rightTags = [
+      ruleTxt && ruleTxt !== "None" && this._uiBadge(this._escHtml(ruleTxt), "neutral"),
       sizeTxt && this._uiBadge(sizeTxt, "neutral"),
       profile && this._uiBadge(this._escHtml(profile), "neutral"),
       seasons && this._uiBadge(`${seasons} season${seasons != 1 ? "s" : ""}`, "neutral")
@@ -35039,6 +35043,18 @@ var _LibraryMethods = class {
       </div>
     </div>`;
   }
+  // Collects real rule names from both TV and movie select.episeerr_*
+  // entities' options attribute (already the same set every such entity
+  // carries per type) - no separate backend call needed.
+  _episeerrRuleFilterOptions() {
+    const states = this._hass?.states || {};
+    const rules = /* @__PURE__ */ new Set();
+    for (const key in states) {
+      if (!key.startsWith("select.episeerr_")) continue;
+      for (const o of states[key].attributes?.options || []) rules.add(o);
+    }
+    return [...rules].sort().map((r) => [`episeerrRule:${r}`, `Rule: ${r}`]);
+  }
   // ─── Data helpers ─────────────────────────────────────────────────────────
   _libFilteredItems() {
     const m = this._libModal;
@@ -35049,6 +35065,11 @@ var _LibraryMethods = class {
     if (m.filter === "missing") items = items.filter((i) => !_onDisk(i));
     if (m.filter === "wanted") items = items.filter((i) => i.monitored && !_onDisk(i));
     if (m.filter === "cutoff") items = items.filter((i) => i._libType === "movie" ? !!i.movieFile?.qualityCutoffNotMet : false);
+    if (m.filter && m.filter.startsWith("episeerrRule:")) {
+      const rule = m.filter.slice("episeerrRule:".length);
+      const { seriesMap, movieMap } = this._episeerrRuleMaps();
+      items = items.filter((i) => i._libType === "movie" ? movieMap.get(i.id) === rule : i._libType === "tv" ? seriesMap.get(i.id) === rule : false);
+    }
     if (m.search) {
       const q = m.search.toLowerCase();
       items = items.filter((i) => (i.title || "").toLowerCase().includes(q) || (i.originalTitle || "").toLowerCase().includes(q));
@@ -35066,6 +35087,8 @@ var _LibraryMethods = class {
           return dir * (a.qualityProfileName || "").localeCompare(b.qualityProfileName || "");
         case "added":
           return dir * (new Date(a.added || 0) - new Date(b.added || 0));
+        case "watchedDate":
+          return dir * ((a._watchedAt || 0) - (b._watchedAt || 0));
         case "year":
           return dir * ((a.year || 0) - (b.year || 0));
         case "cinema":
@@ -35133,10 +35156,10 @@ var _LibraryMethods = class {
     else base = [...movies, ...tv];
     if (m.qualityKey === "topquality") base = base.filter((i) => i._libType !== "music");
     if (m.qualityKey === "toprated") base = base.filter((i) => (i.ratings?.imdb?.value || i.ratings?.tmdb?.value || i.ratings?.tvdb?.value || i.ratings?.tvMaze?.value || i.ratings?.trakt?.value || i.ratings?.value || 0) > 0);
-    if (m.qualityKey === "unassigned") {
-      const { seriesMap } = this._episeerrRuleMaps();
-      const isUnassigned = (rule) => !rule || rule === "unassigned" || rule === "None";
-      base = base.filter((i) => i._libType === "tv" && isUnassigned(seriesMap.get(i.id)));
+    if (m.qualityKey === "recentwatch") {
+      const watched = this._hass?.states?.["sensor.episeerr_activity_feed"]?.attributes?.watched || [];
+      const watchedMap = new Map(watched.map((w) => [w.series_id, w.watched_date]));
+      base = base.filter((i) => i._libType === "tv" && watchedMap.has(i.id)).map((i) => ({ ...i, _watchedAt: watchedMap.get(i.id) }));
     }
     if (m.qualityKey === "libupcoming") {
       const now = Date.now();

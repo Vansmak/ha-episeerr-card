@@ -9,30 +9,32 @@ customizations on top of whatever upstream changed (assuming upstream
 didn't touch the exact lines targeted below, which would need a manual
 re-diff at that point - this is a hand-applied patch, not a real merge).
 
-2026-09-07: the Library section's "Top Rated"/★ slot becomes "Unassigned"
-(series/movies with no Episeerr rule assigned at all - a real gap-finder,
-using episeerr-ha's select.episeerr_* entities cross-referenced by
-series_id/movie_id) since Joe has zero use for IMDB-rating sorting but
-constant use for "what did I forget to assign a rule to". "Top Quality"/◆
-becomes "Upcoming" - library items with something happening in the next
-30 days (Sonarr's per-series nextAiring, or Radarr's digitalRelease/
-inCinemas/physicalRelease), i.e. "which of what I already have has
-something coming soon" - distinct from the separate "Upcoming Movies"/
-"New Shows" categories elsewhere on the dashboard, which are TMDB
-discovery of things NOT yet in the library. A true "By Rule" (rule-picker
-dropdown) was the original idea for this slot but doesn't fit a
-boolean-toggle button; Upcoming does, cleanly, with no new UI needed.
+2026-09-07/08, Library section's two quality-tab slots (originally "Top
+Rated"/★ and "Top Quality"/◆):
 
-First cut of Upcoming used "any future date" with no window and no
-hasFile check - real bugs found live 2026-09-08: Backrooms (already
-downloaded, "released" status) still showed because its physicalRelease
-(Blu-ray date) hadn't happened yet, and The Rookie/Scrubs showed with
-nextAiring dates 4+ months out, reading as "a mix of old" rather than
-"upcoming". Fixed with a 30-day window on all date checks plus requiring
-!hasFile for movies specifically (a missing file is what actually makes a
-movie "not here yet" - TV doesn't need the equivalent check since
-nextAiring is inherently about an episode that hasn't aired, hence
-doesn't have a file, yet).
+- ★ went through two iterations. First "Unassigned" (series/movies with
+  no Episeerr rule - a real gap-finder using episeerr-ha's
+  select.episeerr_* entities cross-referenced by series_id/movie_id,
+  narrowed to TV-only once live data showed movies are unassigned by
+  design 35% of the time vs. 1% for series - see git history). Joe then
+  called it "blank and kinda pointless since I can see them in detail"
+  once the item popup's own "Episeerr Rule" quick-action (below) made
+  checking/fixing one item at a time easy without a dedicated finder tab -
+  replaced with "Recently Watched" instead, using the new watched list
+  exposed via episeerr-ha's activity_feed sensor.
+- ◆ became "Upcoming" - library items with something happening in the
+  next 30 days (Sonarr's per-series nextAiring, or Radarr's
+  digitalRelease/inCinemas/physicalRelease). First cut used "any future
+  date" with no window/hasFile check - real bugs found live: Backrooms
+  (already downloaded) still showed because its physicalRelease hadn't
+  happened, and The Rookie/Scrubs showed with nextAiring 4+ months out.
+  Fixed with a 30-day window plus requiring !hasFile for movies.
+
+Also: "Episeerr Rule" quick-action in the item detail popup (alongside
+the card's existing Search/Remove/Cast actions), a "Rule: <name>" option
+in the regular filter dropdown (distinct from the ★/◆ slots - this is a
+real multi-value picker, which a rule choice needs and a boolean toggle
+doesn't fit), and a rule badge in the Overview list-view row.
 
 Usage: python3 scripts/customize.py  (after scripts/rebrand.py)
 """
@@ -51,17 +53,17 @@ def replace_once(old: str, new: str, content: str) -> str:
 
 
 # 1. Compact tile: both call sites use this identical string (music-enabled
-# branch has one, the normal branch has two References Top Rated) - replace
-# every occurrence deliberately, not replace_once.
+# branch has one, the normal branch has two references to Top Rated) -
+# replace every occurrence deliberately, not replace_once.
 TILE_OLD = '"toprated", "Top Rated", this._libTopRatedData()'
-TILE_NEW = '"unassigned", "Unassigned", this._libUnassignedData()'
+TILE_NEW = '"recentwatch", "Recently Watched", this._libRecentWatchedData()'
 tile_count = content.count(TILE_OLD)
 assert tile_count == 2, f"expected 2 tile call sites, found {tile_count}"
 content = content.replace(TILE_OLD, TILE_NEW)
 
 # 2. New data functions - inserted right after _libTopRatedData()'s closing
-# brace, before _libTopQualityData() (left untouched, still real Top Quality
-# data behind the ◆ button, which still reads "Top Quality" for now).
+# brace, before _libTopQualityData() (left untouched, still real Top
+# Quality data, just no longer reachable from the UI - harmless dead code).
 ANCHOR = "].filter((i) => i._score > 0).sort((a, b) => b._score - a._score).slice(0, 4);\n  }\n  _libTopQualityData() {"
 NEW_METHODS = """].filter((i) => i._score > 0).sort((a, b) => b._score - a._score).slice(0, 4);
   }
@@ -83,20 +85,20 @@ NEW_METHODS = """].filter((i) => i._score > 0).sort((a, b) => b._score - a._scor
     }
     return { seriesMap, movieMap };
   }
-  // TV-only, deliberately: confirmed live 2026-09-08 that movies are
-  // usually unassigned by design (8/23 = 35%, most movies just aren't
-  // rule-managed) while series almost always are (1/99 = 1%) - mixing
-  // both in one list buries the one real TV gap under normal-for-movies
-  // noise. Joe: "rules are mostly for shows so maybe separate radarr and
-  // sonarr".
-  _libUnassignedData() {
-    const { seriesMap } = this._episeerrRuleMaps();
-    const isUnassigned = (rule) => !rule || rule === "unassigned" || rule === "None";
-    return (this._sonarr || []).filter((s) => (s.statistics?.episodeFileCount || 0) > 0 && isUnassigned(seriesMap.get(s.id))).map((s) => ({
-      url: this._getSonarrPoster(s),
-      title: s.title,
-      _libType: "tv"
-    })).slice(0, 4);
+  // TV-only: the "watched" list (episeerr-ha's activity_feed sensor,
+  // ultimately from Episeerr's watched.json) only ever records episodes -
+  // there's no equivalent movie-watch tracking in this data source.
+  _libRecentWatchedData() {
+    const watched = this._hass?.states?.["sensor.episeerr_activity_feed"]?.attributes?.watched || [];
+    const bySeriesId = new Map((this._sonarr || []).map((s) => [s.id, s]));
+    const out = [];
+    for (const w of watched) {
+      const s = bySeriesId.get(w.series_id);
+      if (!s) continue;
+      out.push({ url: this._getSonarrPoster(s), title: s.title, _libType: "tv" });
+      if (out.length === 4) break;
+    }
+    return out;
   }
   _libUpcomingData() {
     const now = Date.now();
@@ -131,29 +133,34 @@ TILE2_NEW = '"libupcoming", "Upcoming", this._libUpcomingData()'
 content = replace_once(TILE2_OLD, TILE2_NEW, content)
 
 # 4. Modal: qualityKey computation needs to recognize both new quality-tab
-# keys (typeKey/sort-default logic already fall through to the same
-# defaults "toprated"/"topquality" got - see script docstring, no other
-# changes needed there). The old "topquality" branch below is now dead
-# code (nothing emits that key anymore) - left in place, harmless.
+# keys (sort-default handled separately below). The old "toprated"/
+# "topquality" branches elsewhere are now dead code (nothing emits those
+# keys anymore) - left in place, harmless.
 QK_OLD = 'const qualityKey = key === "toprated" || key === "topquality" ? key : null;'
-QK_NEW = 'const qualityKey = key === "toprated" || key === "topquality" || key === "unassigned" || key === "libupcoming" ? key : null;'
+QK_NEW = 'const qualityKey = key === "toprated" || key === "topquality" || key === "recentwatch" || key === "libupcoming" ? key : null;'
 content = replace_once(QK_OLD, QK_NEW, content)
+
+# 4b. sortDef: "recentwatch" needs its own default sort field
+# ("watchedDate", added in step 6b below) rather than falling through to
+# "added" (date added to library, not date watched - wrong axis).
+SORTDEF_OLD = 'const sortDef = qualityKey === "toprated" ? typeKey === "music" ? "rating" : "imdb" : qualityKey === "topquality" ? "quality" : "added";'
+SORTDEF_NEW = 'const sortDef = qualityKey === "toprated" ? typeKey === "music" ? "rating" : "imdb" : qualityKey === "topquality" ? "quality" : qualityKey === "recentwatch" ? "watchedDate" : "added";'
+content = replace_once(SORTDEF_OLD, SORTDEF_NEW, content)
 
 # 5. Modal toolbar: both button icons/labels - new icons (fill-style to
 # match _ICO_RATED/_ICO_QUAL) plus the G2 array entries.
 G2_OLD = 'const G2 = [["toprated", "Top Rated", _ICO_RATED], ["topquality", "Top Quality", _ICO_QUAL]];'
 G2_NEW = (
-    'const _ICO_UNASSIGNED = `<svg viewBox="0 0 24 24" width="14" height="14" '
+    'const _ICO_WATCHED = `<svg viewBox="0 0 24 24" width="14" height="14" '
     'fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" '
-    'stroke-linejoin="round" style="pointer-events:none"><circle cx="12" cy="12" r="9"/>'
-    '<line x1="12" y1="8" x2="12" y2="13"/><circle cx="12" cy="16.5" r="0.75" '
-    'fill="currentColor" stroke="none"/></svg>`;\n'
+    'stroke-linejoin="round" style="pointer-events:none"><path d="M2 12s3.5-7 10-7 '
+    '10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg>`;\n'
     '    const _ICO_UPCOMING = `<svg viewBox="0 0 24 24" width="14" height="14" '
     'fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" '
     'stroke-linejoin="round" style="pointer-events:none"><rect x="3" y="4" width="18" '
     'height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" '
     'x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>`;\n'
-    '    const G2 = [["unassigned", "Unassigned", _ICO_UNASSIGNED], '
+    '    const G2 = [["recentwatch", "Recently Watched", _ICO_WATCHED], '
     '["libupcoming", "Upcoming", _ICO_UPCOMING]];'
 )
 content = replace_once(G2_OLD, G2_NEW, content)
@@ -162,10 +169,11 @@ content = replace_once(G2_OLD, G2_NEW, content)
 # modal's grid when a tab is active, not just the compact tile preview).
 FILTER_OLD = 'if (m.qualityKey === "toprated") base = base.filter((i) => (i.ratings?.imdb?.value || i.ratings?.tmdb?.value || i.ratings?.tvdb?.value || i.ratings?.tvMaze?.value || i.ratings?.trakt?.value || i.ratings?.value || 0) > 0);'
 FILTER_NEW = FILTER_OLD + (
-    '\n    if (m.qualityKey === "unassigned") {\n'
-    "      const { seriesMap } = this._episeerrRuleMaps();\n"
-    '      const isUnassigned = (rule) => !rule || rule === "unassigned" || rule === "None";\n'
-    '      base = base.filter((i) => i._libType === "tv" && isUnassigned(seriesMap.get(i.id)));\n'
+    '\n    if (m.qualityKey === "recentwatch") {\n'
+    '      const watched = this._hass?.states?.["sensor.episeerr_activity_feed"]?.attributes?.watched || [];\n'
+    "      const watchedMap = new Map(watched.map((w) => [w.series_id, w.watched_date]));\n"
+    '      base = base.filter((i) => i._libType === "tv" && watchedMap.has(i.id))'
+    ".map((i) => ({ ...i, _watchedAt: watchedMap.get(i.id) }));\n"
     "    }\n"
     '    if (m.qualityKey === "libupcoming") {\n'
     "      const now = Date.now();\n"
@@ -181,17 +189,26 @@ FILTER_NEW = FILTER_OLD + (
 )
 content = replace_once(FILTER_OLD, FILTER_NEW, content)
 
-# 7. Force typeKey to "tv" when opening the modal via the Unassigned tile/
-# tab, same treatment "topquality" already gets forcing "movies" - keeps
-# the modal's own type toggle consistent with what the data actually is.
+# 6b. Sort switch: a "watchedDate" case reading the _watchedAt attached
+# above, so the default view is actually ordered by recency-watched.
+SORTCASE_OLD = '        case "added":\n          return dir * (new Date(a.added || 0) - new Date(b.added || 0));'
+SORTCASE_NEW = SORTCASE_OLD + (
+    '\n        case "watchedDate":\n'
+    "          return dir * ((a._watchedAt || 0) - (b._watchedAt || 0));"
+)
+content = replace_once(SORTCASE_OLD, SORTCASE_NEW, content)
+
+# 7. Force typeKey to "tv" when opening the modal via the Recently Watched
+# tile/tab, same treatment "topquality" already gets forcing "movies" -
+# keeps the modal's own type toggle consistent with what the data is.
 TYPEKEY_OLD = 'const typeKey = key === "movies" || key === "topquality" ? "movies" : key === "tv" ? "tv" : key === "music" ? "music"'
-TYPEKEY_NEW = 'const typeKey = key === "movies" || key === "topquality" ? "movies" : key === "tv" || key === "unassigned" ? "tv" : key === "music" ? "music"'
+TYPEKEY_NEW = 'const typeKey = key === "movies" || key === "topquality" ? "movies" : key === "tv" || key === "recentwatch" ? "tv" : key === "music" ? "music"'
 content = replace_once(TYPEKEY_OLD, TYPEKEY_NEW, content)
 
-# 8. Disable the Movies/Music type-toggle buttons while Unassigned is
+# 8. Disable the Movies/Music type-toggle buttons while Recently Watched is
 # active, mirroring topquality's existing movies-only lockout.
 DISABLED_OLD = 'disabled: m.qualityKey === "topquality" && k !== "movies"'
-DISABLED_NEW = 'disabled: m.qualityKey === "topquality" && k !== "movies" || m.qualityKey === "unassigned" && k !== "tv"'
+DISABLED_NEW = 'disabled: m.qualityKey === "topquality" && k !== "movies" || m.qualityKey === "recentwatch" && k !== "tv"'
 content = replace_once(DISABLED_OLD, DISABLED_NEW, content)
 
 # 9. Item popup: add "Episeerr Rule" to the existing quick-actions ("qa")
@@ -273,6 +290,69 @@ QACLICK_NEW = QACLICK_OLD + """
         return;
       }"""
 content = replace_once(QACLICK_OLD, QACLICK_NEW, content)
+
+# 12. Filter dropdown: one "Rule: <name>" option per real Episeerr rule
+# (both TV and movie rules, unlike the ★ slot - a specific rule choice
+# isn't noisy for movies the way "no rule at all" was), alongside the
+# existing Monitored/Missing/Wanted/Cutoff options. Joe: "fikterd can have
+# by rule" - a real multi-value picker fits this dropdown; it never fit
+# the ★/◆ boolean-toggle buttons, which is why "By Rule" was dropped as an
+# idea for those slots earlier.
+FILTEROPTS_OLD = 'const FILTER_OPTS = [["all", "All"], ["monitored", "Monitored Only"], ["unmonitored", "Unmonitored"], ["missing", "Missing"], ["wanted", "Wanted"], ["cutoff", "Cutoff Unmet"]];'
+FILTEROPTS_NEW = (
+    FILTEROPTS_OLD
+    + "\n    this._episeerrRuleFilterOptions().forEach((opt) => FILTER_OPTS.push(opt));"
+)
+content = replace_once(FILTEROPTS_OLD, FILTEROPTS_NEW, content)
+
+# 12b. The option-list builder + the filter predicate it drives.
+FILTERPRED_OLD = 'if (m.filter === "cutoff") items = items.filter((i) => i._libType === "movie" ? !!i.movieFile?.qualityCutoffNotMet : false);'
+FILTERPRED_NEW = FILTERPRED_OLD + (
+    '\n    if (m.filter && m.filter.startsWith("episeerrRule:")) {\n'
+    '      const rule = m.filter.slice("episeerrRule:".length);\n'
+    "      const { seriesMap, movieMap } = this._episeerrRuleMaps();\n"
+    "      items = items.filter((i) => i._libType === \"movie\" ? movieMap.get(i.id) === rule : "
+    'i._libType === "tv" ? seriesMap.get(i.id) === rule : false);\n'
+    "    }"
+)
+content = replace_once(FILTERPRED_OLD, FILTERPRED_NEW, content)
+
+METHOD_INSERT_ANCHOR = "  // ─── Data helpers ─────────────────────────────────────────────────────────\n  _libFilteredItems() {"
+METHOD_INSERT_NEW = (
+    "  // Collects real rule names from both TV and movie select.episeerr_*\n"
+    "  // entities' options attribute (already the same set every such entity\n"
+    "  // carries per type) - no separate backend call needed.\n"
+    "  _episeerrRuleFilterOptions() {\n"
+    "    const states = this._hass?.states || {};\n"
+    "    const rules = /* @__PURE__ */ new Set();\n"
+    "    for (const key in states) {\n"
+    '      if (!key.startsWith("select.episeerr_")) continue;\n'
+    "      for (const o of states[key].attributes?.options || []) rules.add(o);\n"
+    "    }\n"
+    '    return [...rules].sort().map((r) => [`episeerrRule:${r}`, `Rule: ${r}`]);\n'
+    "  }\n"
+    "  // ─── Data helpers ─────────────────────────────────────────────────────────\n"
+    "  _libFilteredItems() {"
+)
+content = replace_once(METHOD_INSERT_ANCHOR, METHOD_INSERT_NEW, content)
+
+# 13. Overview (list) row: add a rule badge alongside the existing size/
+# quality-profile/season-count badges. Joe: "can this show rule?" while
+# looking at the Overview view specifically.
+RIGHTTAGS_OLD = """    const rightTags = [
+      sizeTxt && this._uiBadge(sizeTxt, "neutral"),
+      profile && this._uiBadge(this._escHtml(profile), "neutral"),
+      seasons && this._uiBadge(`${seasons} season${seasons != 1 ? "s" : ""}`, "neutral")
+    ].filter(Boolean).join("");"""
+RIGHTTAGS_NEW = """    const { seriesMap: _rmSeries, movieMap: _rmMovie } = this._episeerrRuleMaps();
+    const ruleTxt = isMovie ? _rmMovie.get(item.id) : _rmSeries.get(item.id);
+    const rightTags = [
+      ruleTxt && ruleTxt !== "None" && this._uiBadge(this._escHtml(ruleTxt), "neutral"),
+      sizeTxt && this._uiBadge(sizeTxt, "neutral"),
+      profile && this._uiBadge(this._escHtml(profile), "neutral"),
+      seasons && this._uiBadge(`${seasons} season${seasons != 1 ? "s" : ""}`, "neutral")
+    ].filter(Boolean).join("");"""
+content = replace_once(RIGHTTAGS_OLD, RIGHTTAGS_NEW, content)
 
 TARGET.write_text(content)
 print(f"customized {TARGET} ({len(content)} bytes)")
