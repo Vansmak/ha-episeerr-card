@@ -14,14 +14,25 @@ re-diff at that point - this is a hand-applied patch, not a real merge).
 using episeerr-ha's select.episeerr_* entities cross-referenced by
 series_id/movie_id) since Joe has zero use for IMDB-rating sorting but
 constant use for "what did I forget to assign a rule to". "Top Quality"/◆
-becomes "Upcoming" - library items with a real future date (Sonarr's
-per-series nextAiring, or Radarr's digitalRelease/inCinemas/
-physicalRelease), i.e. "which of what I already have has something
-coming" - distinct from the separate "Upcoming Movies"/"New Shows"
-categories elsewhere on the dashboard, which are TMDB discovery of things
-NOT yet in the library. A true "By Rule" (rule-picker dropdown) was the
-original idea for this slot but doesn't fit a boolean-toggle button;
-Upcoming does, cleanly, with no new UI needed.
+becomes "Upcoming" - library items with something happening in the next
+30 days (Sonarr's per-series nextAiring, or Radarr's digitalRelease/
+inCinemas/physicalRelease), i.e. "which of what I already have has
+something coming soon" - distinct from the separate "Upcoming Movies"/
+"New Shows" categories elsewhere on the dashboard, which are TMDB
+discovery of things NOT yet in the library. A true "By Rule" (rule-picker
+dropdown) was the original idea for this slot but doesn't fit a
+boolean-toggle button; Upcoming does, cleanly, with no new UI needed.
+
+First cut of Upcoming used "any future date" with no window and no
+hasFile check - real bugs found live 2026-09-08: Backrooms (already
+downloaded, "released" status) still showed because its physicalRelease
+(Blu-ray date) hadn't happened yet, and The Rookie/Scrubs showed with
+nextAiring dates 4+ months out, reading as "a mix of old" rather than
+"upcoming". Fixed with a 30-day window on all date checks plus requiring
+!hasFile for movies specifically (a missing file is what actually makes a
+movie "not here yet" - TV doesn't need the equivalent check since
+nextAiring is inherently about an episode that hasn't aired, hence
+doesn't have a file, yet).
 
 Usage: python3 scripts/customize.py  (after scripts/rebrand.py)
 """
@@ -90,14 +101,22 @@ NEW_METHODS = """].filter((i) => i._score > 0).sort((a, b) => b._score - a._scor
   }
   _libUpcomingData() {
     const now = Date.now();
-    const isFuture = (d) => !!d && new Date(d).getTime() > now;
+    // "Upcoming" means soon (30 days), not just any future date - a movie
+    // still shows a future physicalRelease (Blu-ray date) long after it's
+    // already downloaded and available, and an ongoing show's nextAiring
+    // can be months out over a hiatus - neither reads as "upcoming".
+    const isSoon = (d) => {
+      if (!d) return false;
+      const diff = new Date(d).getTime() - now;
+      return diff > 0 && diff < 30 * 24 * 60 * 60 * 1e3;
+    };
     return [
-      ...(this._radarr || []).filter((m) => isFuture(m.digitalRelease) || isFuture(m.inCinemas) || isFuture(m.physicalRelease)).map((m) => ({
+      ...(this._radarr || []).filter((m) => !m.hasFile && (isSoon(m.digitalRelease) || isSoon(m.inCinemas) || isSoon(m.physicalRelease))).map((m) => ({
         url: this._getRadarrPoster(m),
         title: m.title,
         _libType: "movie"
       })),
-      ...(this._sonarr || []).filter((s) => isFuture(s.nextAiring)).map((s) => ({
+      ...(this._sonarr || []).filter((s) => isSoon(s.nextAiring)).map((s) => ({
         url: this._getSonarrPoster(s),
         title: s.title,
         _libType: "tv"
@@ -152,10 +171,14 @@ FILTER_NEW = FILTER_OLD + (
     "    }\n"
     '    if (m.qualityKey === "libupcoming") {\n'
     "      const now = Date.now();\n"
-    '      const isFuture = (d) => !!d && new Date(d).getTime() > now;\n'
+    "      const isSoon = (d) => {\n"
+    "        if (!d) return false;\n"
+    "        const diff = new Date(d).getTime() - now;\n"
+    "        return diff > 0 && diff < 30 * 24 * 60 * 60 * 1e3;\n"
+    "      };\n"
     "      base = base.filter((i) => i._libType === \"movie\" ? "
-    "isFuture(i.digitalRelease) || isFuture(i.inCinemas) || isFuture(i.physicalRelease) : "
-    'i._libType === "tv" ? isFuture(i.nextAiring) : false);\n'
+    "!i.hasFile && (isSoon(i.digitalRelease) || isSoon(i.inCinemas) || isSoon(i.physicalRelease)) : "
+    'i._libType === "tv" ? isSoon(i.nextAiring) : false);\n'
     "    }"
 )
 content = replace_once(FILTER_OLD, FILTER_NEW, content)

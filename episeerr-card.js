@@ -34086,14 +34086,22 @@ var _LibraryMethods = class {
   }
   _libUpcomingData() {
     const now = Date.now();
-    const isFuture = (d) => !!d && new Date(d).getTime() > now;
+    // "Upcoming" means soon (30 days), not just any future date - a movie
+    // still shows a future physicalRelease (Blu-ray date) long after it's
+    // already downloaded and available, and an ongoing show's nextAiring
+    // can be months out over a hiatus - neither reads as "upcoming".
+    const isSoon = (d) => {
+      if (!d) return false;
+      const diff = new Date(d).getTime() - now;
+      return diff > 0 && diff < 30 * 24 * 60 * 60 * 1e3;
+    };
     return [
-      ...(this._radarr || []).filter((m) => isFuture(m.digitalRelease) || isFuture(m.inCinemas) || isFuture(m.physicalRelease)).map((m) => ({
+      ...(this._radarr || []).filter((m) => !m.hasFile && (isSoon(m.digitalRelease) || isSoon(m.inCinemas) || isSoon(m.physicalRelease))).map((m) => ({
         url: this._getRadarrPoster(m),
         title: m.title,
         _libType: "movie"
       })),
-      ...(this._sonarr || []).filter((s) => isFuture(s.nextAiring)).map((s) => ({
+      ...(this._sonarr || []).filter((s) => isSoon(s.nextAiring)).map((s) => ({
         url: this._getSonarrPoster(s),
         title: s.title,
         _libType: "tv"
@@ -35090,8 +35098,12 @@ var _LibraryMethods = class {
     }
     if (m.qualityKey === "libupcoming") {
       const now = Date.now();
-      const isFuture = (d) => !!d && new Date(d).getTime() > now;
-      base = base.filter((i) => i._libType === "movie" ? isFuture(i.digitalRelease) || isFuture(i.inCinemas) || isFuture(i.physicalRelease) : i._libType === "tv" ? isFuture(i.nextAiring) : false);
+      const isSoon = (d) => {
+        if (!d) return false;
+        const diff = new Date(d).getTime() - now;
+        return diff > 0 && diff < 30 * 24 * 60 * 60 * 1e3;
+      };
+      base = base.filter((i) => i._libType === "movie" ? !i.hasFile && (isSoon(i.digitalRelease) || isSoon(i.inCinemas) || isSoon(i.physicalRelease)) : i._libType === "tv" ? isSoon(i.nextAiring) : false);
     }
     if (m.qualityKey === "topquality") base = base.filter((i) => i._libType === "movie" && !!i.hasFile);
     return base;
