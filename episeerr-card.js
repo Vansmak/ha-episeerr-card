@@ -9554,10 +9554,18 @@ var _ArrMethods = class {
     try {
       const rf = rootFolder || rootFolders?.[0]?.path || "/movies";
       const pId = profileId ? parseInt(profileId) : profiles?.[0]?.id ?? 1;
-      const pd = this._popup;
-      const body = { tmdbId: parseInt(tmdbId), title: pd?.title || pd?.name || "", qualityProfileId: pId, rootFolderPath: rf, monitored: true, addOptions: { searchForMovie: true } };
-      if (tagId) body.tags = [parseInt(tagId)];
-      await this._callApi("POST", `arr_stack/${svc}/movie`, body);
+      if (svc === "radarr") {
+        await this._hass.callService("episeerr", "add_movie", {
+          tmdb_id: String(tmdbId),
+          quality_profile_id: pId,
+          root_folder_path: rf
+        });
+      } else {
+        const pd = this._popup;
+        const body = { tmdbId: parseInt(tmdbId), title: pd?.title || pd?.name || "", qualityProfileId: pId, rootFolderPath: rf, monitored: true, addOptions: { searchForMovie: true } };
+        if (tagId) body.tags = [parseInt(tagId)];
+        await this._callApi("POST", `arr_stack/${svc}/movie`, body);
+      }
       setTimeout(() => {
         (svc === "radarr2" ? this._fetchRadarr2() : this._fetchRadarr()).then(() => {
           this._reRenderRight(true);

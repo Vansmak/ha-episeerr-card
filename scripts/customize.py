@@ -36,6 +36,22 @@ in the regular filter dropdown (distinct from the ★/◆ slots - this is a
 real multi-value picker, which a rule choice needs and a boolean toggle
 doesn't fit), and a rule badge in the Overview list-view row.
 
+2026-09-08: _addDirectMovieRequest (the actual handler behind the search
+bar's movie add, confirmed by tracing all 5 call sites in wire/index.js)
+now calls episeerr.add_movie instead of POSTing arr_stack/radarr/movie
+directly, for the primary Radarr instance only - Joe explicitly chose
+"replace the card's own Add button behavior" over a separate Quick Add
+box after being warned this touches complex, stateful code. Scoped to
+movies only: the equivalent TV path (_addDirectTvRequest) supports
+picking specific seasons to monitor, which episeerr.add_series doesn't
+expose at all (tmdb_id only) - replacing it would be a real functional
+regression, not just a redirect, so it's intentionally left on the
+original arr_stack add path pending a decision on that tradeoff.
+profileId/rootFolder already flow into this function from the same
+Radarr instance Episeerr's own quality-profile/root-folder ids come from
+(both ultimately call the same Radarr /api/v3/qualityprofile), so no
+extra get_movie_add_options round-trip is needed here.
+
 Usage: python3 scripts/customize.py  (after scripts/rebrand.py)
 """
 import pathlib
@@ -360,6 +376,35 @@ RIGHTTAGS_NEW = """    const { seriesMap: _rmSeries, movieMap: _rmMovie } = this
       seasons && this._uiBadge(`${seasons} season${seasons != 1 ? "s" : ""}`, "neutral")
     ].filter(Boolean).join("");"""
 content = replace_once(RIGHTTAGS_OLD, RIGHTTAGS_NEW, content)
+
+# 14. Route the movie add path through Episeerr's own add service (primary
+# Radarr instance only - see docstring for why TV and the radarr2 case are
+# left untouched).
+ADDMOVIE_OLD = """    try {
+      const rf = rootFolder || rootFolders?.[0]?.path || "/movies";
+      const pId = profileId ? parseInt(profileId) : profiles?.[0]?.id ?? 1;
+      const pd = this._popup;
+      const body = { tmdbId: parseInt(tmdbId), title: pd?.title || pd?.name || "", qualityProfileId: pId, rootFolderPath: rf, monitored: true, addOptions: { searchForMovie: true } };
+      if (tagId) body.tags = [parseInt(tagId)];
+      await this._callApi("POST", `arr_stack/${svc}/movie`, body);
+      setTimeout(() => {"""
+ADDMOVIE_NEW = """    try {
+      const rf = rootFolder || rootFolders?.[0]?.path || "/movies";
+      const pId = profileId ? parseInt(profileId) : profiles?.[0]?.id ?? 1;
+      if (svc === "radarr") {
+        await this._hass.callService("episeerr", "add_movie", {
+          tmdb_id: String(tmdbId),
+          quality_profile_id: pId,
+          root_folder_path: rf
+        });
+      } else {
+        const pd = this._popup;
+        const body = { tmdbId: parseInt(tmdbId), title: pd?.title || pd?.name || "", qualityProfileId: pId, rootFolderPath: rf, monitored: true, addOptions: { searchForMovie: true } };
+        if (tagId) body.tags = [parseInt(tagId)];
+        await this._callApi("POST", `arr_stack/${svc}/movie`, body);
+      }
+      setTimeout(() => {"""
+content = replace_once(ADDMOVIE_OLD, ADDMOVIE_NEW, content)
 
 TARGET.write_text(content)
 print(f"customized {TARGET} ({len(content)} bytes)")
