@@ -59,10 +59,23 @@ season-picker regression flagged above isn't actually a loss for his real
 workflow. tagId is still honored: episeerr.add_series has no tag
 parameter at all, so after the add, the newly-created series is found by
 tvdbId (refetching Sonarr, same lookup the original code already did) and
-tagged via a follow-up arr_stack/sonarr/series-editor PUT - same numeric
-tag-id shape the original single-item add already sent straight to
-Sonarr. sonarr2 (secondary instance) is untouched, same reasoning as
-radarr2 for movies - Episeerr doesn't support a second instance.
+tagged via a follow-up call. sonarr2 (secondary instance) is untouched,
+same reasoning as radarr2 for movies - Episeerr doesn't support a second
+instance.
+
+2026-09-27: that follow-up tag call was a raw arr_stack/sonarr/series-editor
+PUT straight to Sonarr - bypassed Episeerr entirely. Since it's a tag edit
+on an already-existing series (not a fresh add), it doesn't even fire
+Sonarr's own webhook back to Episeerr, so nothing about the rule actually
+gets applied until the next scheduled reconciliation sweep happens to
+notice the orphaned tag - meaning the series just sits there, unmonitored,
+for however long that takes (see episeerr_dev/CLAUDE.md's "New Series
+Intake Flows"). Now checks the selected tag's label: an episeerr_<rule>
+tag calls episeerr.assign_series_rule instead (config update + monitor +
+search happen immediately, same as picking a rule any other way);
+anything else (a real non-Episeerr Sonarr tag - 1080p, anime, etc.) still
+goes through the original raw series-editor PUT, since that's legitimate
+for tags Episeerr has no opinion about.
 
 Usage: python3 scripts/customize.py  (after scripts/rebrand.py)
 """
@@ -485,12 +498,20 @@ ADDTV_NEW = """    try {
         await this._fetchSonarr();
         const added = (this._sonarrAll || []).find((s) => String(s.tvdbId) === String(tvdbId));
         if (added && tagId) {
+          const tagLabel = (this._sonarrTags || []).find((t) => String(t.id) === String(tagId))?.label || "";
           try {
-            await this._callApi("PUT", "arr_stack/sonarr/series-editor", {
-              seriesIds: [added.id],
-              tags: [parseInt(tagId)],
-              applyTags: "add"
-            });
+            if (tagLabel.startsWith("episeerr_")) {
+              await this._hass.callService("episeerr", "assign_series_rule", {
+                series_id: added.id,
+                rule_name: tagLabel.slice("episeerr_".length)
+              });
+            } else {
+              await this._callApi("PUT", "arr_stack/sonarr/series-editor", {
+                seriesIds: [added.id],
+                tags: [parseInt(tagId)],
+                applyTags: "add"
+              });
+            }
           } catch (_) {
           }
         }

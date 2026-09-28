@@ -9619,12 +9619,20 @@ var _ArrMethods = class {
         await this._fetchSonarr();
         const added = (this._sonarrAll || []).find((s) => String(s.tvdbId) === String(tvdbId));
         if (added && tagId) {
+          const tagLabel = (this._sonarrTags || []).find((t) => String(t.id) === String(tagId))?.label || "";
           try {
-            await this._callApi("PUT", "arr_stack/sonarr/series-editor", {
-              seriesIds: [added.id],
-              tags: [parseInt(tagId)],
-              applyTags: "add"
-            });
+            if (tagLabel.startsWith("episeerr_")) {
+              await this._hass.callService("episeerr", "assign_series_rule", {
+                series_id: added.id,
+                rule_name: tagLabel.slice("episeerr_".length)
+              });
+            } else {
+              await this._callApi("PUT", "arr_stack/sonarr/series-editor", {
+                seriesIds: [added.id],
+                tags: [parseInt(tagId)],
+                applyTags: "add"
+              });
+            }
           } catch (_) {
           }
         }
